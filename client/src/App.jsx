@@ -1,17 +1,27 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+// src/App.jsx
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import SignIn from './components/SignIn';
+import FileUpload from './components/FileUpload';
+import DataCleaning from './components/DataCleaning';
+import Dashboard from './components/Dashboard';
 
 function App() {
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <h1 className="text-4xl font-bold text-red-600">Welcome to df.jsx!</h1>
-    </div>
+    <Router>
+      <Routes>
+        <Route path="/" element={<SignIn />} />
+        <Route path="/upload" element={<FileUpload />} />
+        <Route path="/clean" element={<DataCleaning />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+     
+      </Routes>
+    </Router>
   );
 }
 
 export default App;
+
 
 
 
