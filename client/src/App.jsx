@@ -1,4 +1,4 @@
-// src/App.jsx
+import './App.css'
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import SignIn from './components/SignIn';
