@@ -1,15 +1,18 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Text, JSON, TIMESTAMP, func
 from datetime import datetime
 from database import Base
 
 class Dataset(Base):
-    __tablename__ = 'datasets'
+    __tablename__ = "datasets"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String, nullable=True)  # New
-    description = Column(String, nullable=True)  # New
-    filename = Column(String, nullable=False)
+    title = Column(String(255))
+    description = Column(Text)
+    filename = Column(String(255))
+    raw_data = Column(JSON)
     cleaned_data = Column(JSON)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
-
+    categorical_mappings = Column(JSON)
+    normalization_params = Column(JSON)
+    column_renames = Column(JSON)
+    uploaded_at = Column(TIMESTAMP, server_default=func.now())
 

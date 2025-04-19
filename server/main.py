@@ -7,15 +7,17 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 # Third-party
-from fastapi import FastAPI, File, UploadFile, Depends, Form
+from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 import pandas as pd
 import matplotlib.pyplot as plt
 from pydantic import BaseModel
 
 # Internal modules
-from database import SessionLocal
+from database import SessionLocal, get_db
 from models import Dataset
 from database import engine
 from models import Base
@@ -63,28 +65,52 @@ async def upload_csv(file: UploadFile = File(...)):
 
     return insights
 
+class DatasetCreate(BaseModel):
+    title: str
+    description: str
+    filename: str
+    raw_data: list[dict]
 
+@app.post("/datasets/save")
+def save_dataset(data: DatasetCreate, db: Session = Depends(get_db)):
+    try:
+        dataset = Dataset(
+            title=data.title,
+            description=data.description,
+            filename=data.filename,
+            raw_data=data.raw_data,
+            cleaned_data=None,
+            categorical_mappings=None,
+            normalization_params=None,
+            column_renames=None
+        )
+        db.add(dataset)
+        db.commit()
+        db.refresh(dataset)
+        return {"message": "Dataset saved", "id": dataset.id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving dataset: {e}")
 
     # Save to database
-    db = SessionLocal()
-    try:
-        new_dataset = Dataset(
-            title=title,
-            description=description,
-            filename=file.filename,
-            raw_data=df.to_dict(orient="records")
-        )
-        db.add(new_dataset)
-        db.commit()
-        db.refresh(new_dataset)
-    finally:
-        db.close()
+    # db = SessionLocal()
+    # try:
+    #     new_dataset = Dataset(
+    #         title=title,
+    #         description=description,
+    #         filename=file.filename,
+    #         raw_data=df.to_dict(orient="records")
+    #     )
+    #     db.add(new_dataset)
+    #     db.commit()
+    #     db.refresh(new_dataset)
+    # finally:
+    #     db.close()
 
-    return {
-        "message": "Upload successful",
-        "columns": df.columns.tolist(),
-        "head": df.head().to_dict(orient="records")
-    }
+    # return {
+    #     "message": "Upload successful",
+    #     "columns": df.columns.tolist(),
+    #     "head": df.head().to_dict(orient="records")
+    # }
 
 
 
