@@ -51,12 +51,15 @@ export default function FileUpload() {
       });
 
       if (!res.ok) throw new Error("Save failed");
-      setSuccess("Dataset saved to database!");
+      const data = await res.json();
+
+      alert(`✅ Dataset saved! ID: ${data.id}. You can now begin data cleaning or exploration.`);
+      setSuccess("Dataset saved successfully! You can now proceed to clean or explore your data.");
       setError(null);
     } catch (err) {
       console.error(err);
-      setSuccess(null);
       setError("Error saving dataset");
+      setSuccess(null);
     }
   };
 

@@ -9,6 +9,23 @@ from typing import List, Dict, Any
 # Third-party
 from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+origins = [
+    "http://localhost:5173",  # Vite frontend
+    "http://127.0.0.1:5173",  # Sometimes needed
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # List of trusted dev origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
@@ -21,17 +38,12 @@ from database import SessionLocal, get_db
 from models import Dataset
 from database import engine
 from models import Base
+import schemas
+import models
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 class CleanRequest(BaseModel):
     data: List[Dict[str, Any]]
@@ -91,26 +103,17 @@ def save_dataset(data: DatasetCreate, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error saving dataset: {e}")
 
-    # Save to database
-    # db = SessionLocal()
-    # try:
-    #     new_dataset = Dataset(
-    #         title=title,
-    #         description=description,
-    #         filename=file.filename,
-    #         raw_data=df.to_dict(orient="records")
-    #     )
-    #     db.add(new_dataset)
-    #     db.commit()
-    #     db.refresh(new_dataset)
-    # finally:
-    #     db.close()
 
-    # return {
-    #     "message": "Upload successful",
-    #     "columns": df.columns.tolist(),
-    #     "head": df.head().to_dict(orient="records")
-    # }
+@app.get("/datasets", response_model=List[schemas.DatasetSummary])
+def get_all_datasets(db: Session = Depends(get_db)):
+    return db.query(Dataset).order_by(Dataset.uploaded_at.desc()).all()
+
+@app.get("/datasets/{dataset_id}", response_model=schemas.Dataset)
+def get_dataset(dataset_id: int, db: Session = Depends(get_db)):
+    dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return dataset
 
 
 
@@ -143,6 +146,13 @@ def clean_data(req: CleanRequest):
     return {"data": cleaned_dict}
 
 
+# fallback option for CORS
+from fastapi.responses import JSONResponse
+
+@app.options("/{full_path:path}")
+async def preflight_handler():
+    return JSONResponse(content={"detail": "CORS preflight OK"})
+
 
 
 # Dependency to get DB session
@@ -153,17 +163,6 @@ def get_db():
     finally:
         db.close()
 
-@app.get("/datasets")
-def get_datasets(db: Session = Depends(get_db)):
-    datasets = db.query(Dataset).all()
-    return [
-        {
-            "id": d.id,
-            "filename": d.filename,
-            "uploaded_at": d.uploaded_at,
-            "cleaned_data": d.cleaned_data
-        } for d in datasets
-    ]
 
 
 
