@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 # Third-party
-from fastapi import FastAPI, File, UploadFile, Depends
+from fastapi import FastAPI, File, UploadFile, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import pandas as pd
@@ -42,15 +42,50 @@ def read_root():
 
 @app.post("/upload-csv")
 async def upload_csv(file: UploadFile = File(...)):
-    data = await file.read()
-    df = pd.read_csv(io.BytesIO(data))
-    df = df.dropna()
-    df.columns = df.columns.str.strip().str.lower()
+    contents = await file.read()
+    df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
+
+    # Capture df.info()
+    buffer = io.StringIO()
+    df.info(buf=buffer)
+    info_output = buffer.getvalue()
+
+    # Build the insights dictionary
+    insights = {
+        "preview": df.head().to_dict(orient="records"),
+        "shape": list(df.shape),
+        "columns": df.columns.tolist(),
+        "dtypes": df.dtypes.astype(str).to_dict(),
+        "null_counts": df.isnull().sum().to_dict(),
+        "summary_stats": df.describe(include="all").fillna("").to_dict(),
+        "info_output": info_output
+    }
+
+    return insights
+
+
+
+    # Save to database
+    db = SessionLocal()
+    try:
+        new_dataset = Dataset(
+            title=title,
+            description=description,
+            filename=file.filename,
+            raw_data=df.to_dict(orient="records")
+        )
+        db.add(new_dataset)
+        db.commit()
+        db.refresh(new_dataset)
+    finally:
+        db.close()
 
     return {
+        "message": "Upload successful",
         "columns": df.columns.tolist(),
         "head": df.head().to_dict(orient="records")
     }
+
 
 
 @app.post("/clean")
