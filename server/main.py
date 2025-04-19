@@ -1,36 +1,39 @@
 # server/main.py
-from database import SessionLocal
-from models import Dataset
 
-# Already at the top? If not, add these:
-from pydantic import BaseModel
+# Standard library
+import io
+import base64
+from datetime import datetime
 from typing import List, Dict, Any
 
-class CleanRequest(BaseModel):
-    data: List[Dict[str, Any]]
-    operations: Dict[str, Any]
-
-
-
-import io, base64
-from typing import List, Dict, Any
-
-from fastapi import FastAPI, File, UploadFile
+# Third-party
+from fastapi import FastAPI, File, UploadFile, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
+from sqlalchemy.orm import Session
 import pandas as pd
 import matplotlib.pyplot as plt
+from pydantic import BaseModel
+
+# Internal modules
+from database import SessionLocal
+from models import Dataset
+from database import engine
+from models import Base
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
-# Allow your React dev server (http://localhost:5173) to call these APIs
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class CleanRequest(BaseModel):
+    data: List[Dict[str, Any]]
+    operations: Dict[str, Any]
 
 @app.get("/")
 def read_root():
@@ -41,27 +44,19 @@ def read_root():
 async def upload_csv(file: UploadFile = File(...)):
     data = await file.read()
     df = pd.read_csv(io.BytesIO(data))
-
-    # initial cleanup
     df = df.dropna()
     df.columns = df.columns.str.strip().str.lower()
 
     return {
         "columns": df.columns.tolist(),
-        "head":    df.head().to_dict(orient="records")
+        "head": df.head().to_dict(orient="records")
     }
 
-
-# ─── New: Cleaning endpoint ────────────────────────────────────────────────────
-
-from database import SessionLocal
-from models import Dataset
 
 @app.post("/clean")
 def clean_data(req: CleanRequest):
     df = pd.DataFrame(req.data)
 
-    # Clean the data
     if req.operations.get("dropna"):
         df = df.dropna()
     for col, val in req.operations.get("fillna", {}).items():
@@ -72,7 +67,6 @@ def clean_data(req: CleanRequest):
     cleaned_dict = df.to_dict(orient="records")
     filename = req.operations.get("filename", "unknown.csv")
 
-    # Save to database
     db = SessionLocal()
     try:
         new_dataset = Dataset(
@@ -89,6 +83,29 @@ def clean_data(req: CleanRequest):
 
 
 
+
+# Dependency to get DB session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.get("/datasets")
+def get_datasets(db: Session = Depends(get_db)):
+    datasets = db.query(Dataset).all()
+    return [
+        {
+            "id": d.id,
+            "filename": d.filename,
+            "uploaded_at": d.uploaded_at,
+            "cleaned_data": d.cleaned_data
+        } for d in datasets
+    ]
+
+
+
 @app.get("/plot")
 def get_plot():
     plt.figure()
@@ -98,3 +115,4 @@ def get_plot():
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode()
     return {"plot": f"data:image/png;base64,{img_b64}"}
+
