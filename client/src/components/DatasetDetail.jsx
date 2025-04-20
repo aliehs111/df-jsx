@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 
 export default function DatasetDetail() {
   const { id } = useParams();
@@ -69,6 +69,13 @@ export default function DatasetDetail() {
           className="mt-4 rounded shadow-lg"
         />
       )}
+      <Link
+  to={`/datasets/${id}/clean`}
+  className="inline-block mt-4 text-blue-600 hover:underline font-medium"
+>
+  Begin Cleaning & Wrangling
+</Link>
+
     </div>
   );
 }

@@ -62,7 +62,9 @@ def read_root():
 @app.post("/upload-csv")
 async def upload_csv(file: UploadFile = File(...)):
     contents = await file.read()
-    df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
+    df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
+
+
 
     # Capture df.info()
     buffer = io.StringIO()
@@ -222,6 +224,85 @@ def get_correlation_heatmap(dataset_id: int, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate heatmap: {e}")
 
+@app.post("/clean-preview")
+def preview_cleaning(data: Dict[str, Any], db: Session = Depends(get_db)):
+    dataset_id = data.get("dataset_id")
+    operations = data.get("operations", {})
+
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    df = pd.DataFrame(dataset.raw_data)
+    df_cleaned = df.copy()
+
+    # --- Before Stats ---
+    before = {
+        "shape": df.shape,
+        "null_counts": df.isnull().sum().to_dict(),
+        "dtypes": df.dtypes.astype(str).to_dict()
+    }
+
+    # --- Lowercase Headers ---
+    if operations.get("lowercase_headers"):
+        df_cleaned.columns = [c.lower() for c in df_cleaned.columns]
+
+    # --- Handle Missing Values ---
+    strategy = operations.get("fillna_strategy")
+    if strategy in {"mean", "median", "mode"}:
+        for col in df_cleaned.columns:
+            if df_cleaned[col].isnull().any():
+                if strategy == "mean":
+                    df_cleaned[col] = df_cleaned[col].fillna(df_cleaned[col].mean())
+                elif strategy == "median":
+                    df_cleaned[col] = df_cleaned[col].fillna(df_cleaned[col].median())
+                elif strategy == "mode":
+                    mode_val = df_cleaned[col].mode()
+                    if not mode_val.empty:
+                        df_cleaned[col] = df_cleaned[col].fillna(mode_val[0])
+    elif strategy == "zero":
+        df_cleaned = df_cleaned.fillna(0)
+
+    # --- Scale Data ---
+    scale_method = operations.get("scale")
+    numeric_cols = df_cleaned.select_dtypes(include="number").columns
+
+    if scale_method == "normalize":
+        for col in numeric_cols:
+            min_val = df_cleaned[col].min()
+            max_val = df_cleaned[col].max()
+            if min_val != max_val:
+                df_cleaned[col] = (df_cleaned[col] - min_val) / (max_val - min_val)
+    elif scale_method == "standardize":
+        for col in numeric_cols:
+            mean = df_cleaned[col].mean()
+            std = df_cleaned[col].std()
+            if std > 0:
+                df_cleaned[col] = (df_cleaned[col] - mean) / std
+
+    # --- Encode Categorical Variables ---
+    encoding = operations.get("encoding")
+    if encoding in {"onehot", "label"}:
+        cat_cols = df_cleaned.select_dtypes(include=["object", "category"]).columns.tolist()
+        if encoding == "onehot":
+            df_cleaned = pd.get_dummies(df_cleaned, columns=cat_cols)
+        elif encoding == "label":
+            from sklearn.preprocessing import LabelEncoder
+            for col in cat_cols:
+                le = LabelEncoder()
+                df_cleaned[col] = le.fit_transform(df_cleaned[col])
+
+    # --- After Stats ---
+    after = {
+        "shape": df_cleaned.shape,
+        "null_counts": df_cleaned.isnull().sum().to_dict(),
+        "dtypes": df_cleaned.dtypes.astype(str).to_dict()
+    }
+
+    return {
+        "before_stats": before,
+        "after_stats": after,
+    }
 
 
 @app.get("/plot")
