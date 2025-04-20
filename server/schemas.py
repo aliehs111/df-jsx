@@ -1,4 +1,5 @@
 # server/schemas.py
+from typing import List, Dict, Optional, Any
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -18,12 +19,12 @@ class Dataset(BaseModel):
     title: str
     description: str
     filename: str
-    raw_data: dict | None
-    cleaned_data: dict | None
-    categorical_mappings: dict | None
-    normalization_params: dict | None
-    column_renames: dict | None
+    raw_data: Any  # ✅ <- allow any JSON-serializable structure
+    cleaned_data: Optional[Any] = None
+    categorical_mappings: Optional[Dict[str, Any]] = None
+    normalization_params: Optional[Dict[str, Any]] = None
+    column_renames: Optional[Dict[str, Any]] = None
     uploaded_at: datetime
 
     class Config:
-        from_attributes = True  # replaces orm_mode in Pydantic v2
+        from_attributes = True  # Pydantic v2
