@@ -7,6 +7,7 @@ import DataCleaning from './components/DataCleaning';
 import Dashboard from './components/Dashboard';
 import DatasetsList from './components/DatasetsList';
 import DatasetDetail from './components/DatasetDetail';
+// import CorrelationHeatmap from './components/CorrelationHeatmap';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/datasets" element={<DatasetsList />} />
         <Route path="/datasets/:id" element={<DatasetDetail />} />
+        {/* <Route path="/datasets/:id/heatmap" element={<CorrelationHeatmap />} /> */}
 
       </Routes>
     </Router>

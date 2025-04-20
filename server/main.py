@@ -9,6 +9,11 @@ from typing import List, Dict, Any
 # Third-party
 from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+import matplotlib
+matplotlib.use("Agg")  # Avoid macOS GUI crash
+import matplotlib.pyplot as plt
+import seaborn as sns  # ✅ Add this
+
 
 app = FastAPI()
 
@@ -163,6 +168,59 @@ def get_db():
     finally:
         db.close()
 
+@app.get("/datasets/{dataset_id}/heatmap")
+def get_heatmap(dataset_id: int, db: Session = Depends(get_db)):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset or not dataset.raw_data:
+        raise HTTPException(status_code=404, detail="Dataset not found or no raw data")
+    
+    df = pd.DataFrame(dataset.raw_data)
+
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(df.corr(numeric_only=True), annot=True, cmap="coolwarm", fmt=".2f")
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png", bbox_inches="tight")
+    buf.seek(0)
+    plt.close()
+    img_b64 = base64.b64encode(buf.read()).decode()
+
+    return {"plot": f"data:image/png;base64,{img_b64}"}
+
+
+@app.get("/datasets/{dataset_id}/correlation")
+def get_correlation_heatmap(dataset_id: int, db: Session = Depends(get_db)):
+    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    if not dataset or not dataset.raw_data:
+        raise HTTPException(status_code=404, detail="Dataset or raw data not found")
+
+    try:
+        df = pd.DataFrame(dataset.raw_data)
+
+        # Drop non-numeric columns if any
+        df_numeric = df.select_dtypes(include=['number'])
+        if df_numeric.empty:
+            raise HTTPException(status_code=400, detail="No numeric data available for correlation")
+
+        # Create correlation matrix
+        corr = df_numeric.corr()
+
+        # Plot heatmap
+        plt.figure(figsize=(10, 8))
+        plt.imshow(corr, cmap='coolwarm', interpolation='nearest')
+        plt.xticks(range(len(corr.columns)), corr.columns, rotation=90)
+        plt.yticks(range(len(corr.columns)), corr.columns)
+        plt.colorbar()
+        plt.tight_layout()
+
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png")
+        buf.seek(0)
+        encoded = base64.b64encode(buf.read()).decode("utf-8")
+
+        return {"heatmap": f"data:image/png;base64,{encoded}"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate heatmap: {e}")
 
 
 
