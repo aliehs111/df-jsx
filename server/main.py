@@ -1,5 +1,37 @@
 # server/main.py
 
+from models import Base, Dataset
+from auth import userbase  # Import this too so the table gets created
+from database import engine
+
+
+
+# --- Setup FastAPI app ---
+from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from auth.userroutes import router as user_router
+
+app = FastAPI()
+
+# --- CORS settings ---
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Include routers ---
+app.include_router(user_router)
+
+from auth.userroutes import router as user_router
+
 # Standard library
 import io
 import base64
@@ -7,15 +39,15 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 # Third-party
-from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
+
+
 import matplotlib
 matplotlib.use("Agg")  # Avoid macOS GUI crash
 import matplotlib.pyplot as plt
 import seaborn as sns  # ✅ Add this
 
 
-app = FastAPI()
+
 
 origins = [
     "http://localhost:5173",  # Vite frontend
@@ -30,6 +62,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi import FastAPI
+from fastapi.routing import APIRoute
+
+def custom_generate_unique_id(route: APIRoute):
+    tag = route.tags[0] if route.tags else "default"
+    return f"{tag}_{route.name}"
+
+app = FastAPI(generate_unique_id_function=custom_generate_unique_id)
+
+
+app.include_router(user_router)
+
 
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
@@ -39,14 +83,15 @@ import matplotlib.pyplot as plt
 from pydantic import BaseModel
 
 # Internal modules
-from database import SessionLocal, get_db
+from database import AsyncSessionLocal, get_async_db
+
 from models import Dataset
 from database import engine
 from models import Base
 import schemas
 import models
 
-Base.metadata.create_all(bind=engine)
+
 
 
 
@@ -57,6 +102,19 @@ class CleanRequest(BaseModel):
 @app.get("/")
 def read_root():
     return {"message": "Backend is alive!"}
+
+import asyncio
+from database import engine, Base
+from auth.userbase import User  # Make sure this import is here
+from models import Dataset  # Same for any other models
+
+async def init_models():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+@app.on_event("startup")
+async def on_startup():
+    await init_models()
 
 
 @app.post("/upload-csv")
@@ -91,7 +149,8 @@ class DatasetCreate(BaseModel):
     raw_data: list[dict]
 
 @app.post("/datasets/save")
-def save_dataset(data: DatasetCreate, db: Session = Depends(get_db)):
+def save_dataset(data: DatasetCreate, db: Session = Depends(get_async_db)
+):
     try:
         dataset = Dataset(
             title=data.title,
@@ -112,11 +171,11 @@ def save_dataset(data: DatasetCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/datasets", response_model=List[schemas.DatasetSummary])
-def get_all_datasets(db: Session = Depends(get_db)):
+def get_all_datasets(db: Session = Depends(get_async_db)):
     return db.query(Dataset).order_by(Dataset.uploaded_at.desc()).all()
 
 @app.get("/datasets/{dataset_id}", response_model=schemas.Dataset)
-def get_dataset(dataset_id: int, db: Session = Depends(get_db)):
+def get_dataset(dataset_id: int, db: Session = Depends(get_async_db)):
     dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -171,7 +230,7 @@ def get_db():
         db.close()
 
 @app.get("/datasets/{dataset_id}/heatmap")
-def get_heatmap(dataset_id: int, db: Session = Depends(get_db)):
+def get_heatmap(dataset_id: int, db: Session = Depends(get_async_db)):
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset or not dataset.raw_data:
         raise HTTPException(status_code=404, detail="Dataset not found or no raw data")
@@ -190,7 +249,7 @@ def get_heatmap(dataset_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/datasets/{dataset_id}/correlation")
-def get_correlation_heatmap(dataset_id: int, db: Session = Depends(get_db)):
+def get_correlation_heatmap(dataset_id: int, db: Session = Depends(get_async_db)):
     dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
     if not dataset or not dataset.raw_data:
         raise HTTPException(status_code=404, detail="Dataset or raw data not found")
@@ -225,7 +284,7 @@ def get_correlation_heatmap(dataset_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to generate heatmap: {e}")
 
 @app.post("/clean-preview")
-def preview_cleaning(data: Dict[str, Any], db: Session = Depends(get_db)):
+def preview_cleaning(data: Dict[str, Any], db: Session = Depends(get_async_db)):
     dataset_id = data.get("dataset_id")
     operations = data.get("operations", {})
 
@@ -314,4 +373,6 @@ def get_plot():
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode()
     return {"plot": f"data:image/png;base64,{img_b64}"}
+
+
 
