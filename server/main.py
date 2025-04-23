@@ -1,4 +1,7 @@
 # server/main.py
+import sys
+print("✅ Running Python from:", sys.executable)
+
 
 from models import Base, Dataset
 from auth import userbase  # Import this too so the table gets created
@@ -7,9 +10,12 @@ from database import engine
 
 
 # --- Setup FastAPI app ---
-from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException
+from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from auth.userroutes import router as user_router
+from auth.userroutes import fastapi_users  
+current_user = fastapi_users.current_user()
+
 
 app = FastAPI()
 
@@ -49,21 +55,12 @@ import seaborn as sns  # ✅ Add this
 
 
 
-origins = [
-    "http://localhost:5173",  # Vite frontend
-    "http://127.0.0.1:5173",  # Sometimes needed
-]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,  # List of trusted dev origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
+
+
 
 def custom_generate_unique_id(route: APIRoute):
     tag = route.tags[0] if route.tags else "default"
@@ -117,7 +114,7 @@ async def on_startup():
     await init_models()
 
 
-@app.post("/upload-csv")
+@app.post("/upload-csv", dependencies=[Depends(current_user)])
 async def upload_csv(file: UploadFile = File(...)):
     contents = await file.read()
     df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
