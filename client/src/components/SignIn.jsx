@@ -11,7 +11,7 @@ export default function SignIn() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-
+  
     try {
       // Step 1: Login to get token
       const response = await fetch('http://localhost:8000/auth/jwt/login', {
@@ -22,27 +22,36 @@ export default function SignIn() {
         body: new URLSearchParams({
           username: email,
           password: password,
-        }),
+        }).toString(),
       });
-
-      if (!response.ok) {
+  
+      console.log("STATUS:", response.status);
+      console.log("HEADERS:", Array.from(response.headers.entries()));
+  
+      const data = await response.json().catch((err) => {
+        console.error("❌ Failed to parse JSON:", err);
+        return null;
+      });
+  
+      console.log("✅ Login response data:", data);
+  
+      if (!response.ok || !data) {
         throw new Error('Login failed');
       }
-
-      const data = await response.json();
+  
       const token = data.access_token;
       localStorage.setItem('token', token);
-
+  
       // Step 2: Get current user info
       const userRes = await fetch('http://localhost:8000/users/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-
+  
       const userData = await userRes.json();
       localStorage.setItem('user', JSON.stringify(userData));
-
+  
       // Step 3: Redirect to dashboard
       navigate('/dashboard');
     } catch (err) {
@@ -50,7 +59,7 @@ export default function SignIn() {
       setError('Invalid email or password');
     }
   };
-
+  
   return (
     <div className="flex min-h-full flex-1 flex-col justify-center px-6 py-12 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-sm">

@@ -1,20 +1,26 @@
 import React, { useState } from "react";
 
 export default function FileUpload() {
-  const [title, setTitle] = useState("");
+  /* ---------------- state ---------------- */
+  const [title, setTitle]             = useState("");
   const [description, setDescription] = useState("");
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [file, setFile]               = useState(null);
+  const [preview, setPreview]         = useState(null);
+  const [error, setError]             = useState(null);
+  const [success, setSuccess]         = useState(null);
 
+  /* ------------- helpers ----------------- */
   const handleFileChange = (e) => {
-    setFile(e.target.files?.[0] || null);
+    setFile(e.target.files?.[0] ?? null);
   };
 
+  /* ------------- upload ------------------ */
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!file) return;
+
+    // 🔑 grab the token saved after login
+    const token = localStorage.getItem("token");   // <── add this
 
     const formData = new FormData();
     formData.append("file", file);
@@ -22,46 +28,74 @@ export default function FileUpload() {
     try {
       const res = await fetch("http://localhost:8000/upload-csv", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,        // ✅ now defined
+          // no 'Content-Type' here – Let the browser add it with boundary
+        },
         body: formData,
       });
+
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error("Not authenticated – please log in again.");
+        }
+        const errPayload = await res.json().catch(() => ({}));
+        throw new Error(errPayload.detail ?? "Upload failed");
+      }
+
       const data = await res.json();
       console.log("Preview data returned from backend:", data);
       setPreview(data);
       setError(null);
     } catch (err) {
       console.error(err);
-      setError("Upload failed");
+      setError(err.message);
     }
   };
 
+  /* ------------- save dataset ------------ */
   const handleSave = async (e) => {
     e.preventDefault();
     if (!preview || !file) return;
-
+  
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setError("Please sign in again.");
+      return;
+    }
+  
     try {
       const res = await fetch("http://localhost:8000/datasets/save", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           title,
           description,
           filename: file.name,
-          raw_data: preview.preview, // raw data sample to store
+          raw_data: preview.preview, // <- adjust if your key is different
         }),
       });
-
-      if (!res.ok) throw new Error("Save failed");
+  
+      if (!res.ok) {
+        const errPayload = await res.json().catch(() => ({}));
+        throw new Error(errPayload.detail ?? "Save failed");
+      }
+  
       const data = await res.json();
-
-      alert(`✅ Dataset saved! ID: ${data.id}. You can now begin data cleaning or exploration.`);
-      setSuccess("Dataset saved successfully! You can now proceed to clean or explore your data.");
+      setSuccess(`Dataset saved! ID: ${data.id}`);
       setError(null);
+      // optional resets:
+      // setTitle(""); setDescription(""); setFile(null);
     } catch (err) {
-      console.error(err);
-      setError("Error saving dataset");
+      console.error("Save error:", err);
+      setError(err.message);
       setSuccess(null);
     }
   };
+
 
   return (
     <div className="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto">

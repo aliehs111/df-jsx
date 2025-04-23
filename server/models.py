@@ -5,14 +5,17 @@ from database import Base
 class Dataset(Base):
     __tablename__ = "datasets"
 
-    id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(255))
-    description = Column(Text)
-    filename = Column(String(255))
-    raw_data = Column(JSON)
-    cleaned_data = Column(JSON)
-    categorical_mappings = Column(JSON)
-    normalization_params = Column(JSON)
-    column_renames = Column(JSON)
+    id = Column(Integer, primary_key=True)            # PK index implicit
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    filename = Column(String(255), nullable=False)
+
+    # keep JSON if on MySQL 5.7+/8, otherwise switch to Text
+    raw_data = Column(JSON, nullable=True)
+    cleaned_data = Column(JSON, nullable=True)
+    categorical_mappings = Column(JSON, nullable=True)
+    normalization_params = Column(JSON, nullable=True)
+    column_renames = Column(JSON, nullable=True)
+
     uploaded_at = Column(TIMESTAMP, server_default=func.now())
 

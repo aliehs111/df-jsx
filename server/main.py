@@ -8,18 +8,28 @@ from auth import userbase  # Import this too so the table gets created
 from database import engine
 
 
-
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.routing import APIRoute
 # --- Setup FastAPI app ---
 from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException, APIRouter
-from fastapi.middleware.cors import CORSMiddleware
+
+
+
 from auth.userroutes import router as user_router
 from auth.userroutes import fastapi_users  
 current_user = fastapi_users.current_user()
 
 
-app = FastAPI()
+# --- Unique ID generator (define BEFORE FastAPI instance)
+def custom_generate_unique_id(route: APIRoute):
+    tag = route.tags[0] if route.tags else "default"
+    return f"{tag}_{route.name}"
 
-# --- CORS settings ---
+# --- Create FastAPI app with custom ID function
+app = FastAPI(generate_unique_id_function=custom_generate_unique_id)
+
+# --- CORS settings (place immediately after app definition)
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -32,7 +42,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # --- Include routers ---
 app.include_router(user_router)
 
@@ -57,8 +66,7 @@ import seaborn as sns  # ✅ Add this
 
 
 
-from fastapi import FastAPI
-from fastapi.routing import APIRoute
+
 
 
 
@@ -66,7 +74,7 @@ def custom_generate_unique_id(route: APIRoute):
     tag = route.tags[0] if route.tags else "default"
     return f"{tag}_{route.name}"
 
-app = FastAPI(generate_unique_id_function=custom_generate_unique_id)
+
 
 
 app.include_router(user_router)
@@ -75,6 +83,7 @@ app.include_router(user_router)
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
 import matplotlib.pyplot as plt
 from pydantic import BaseModel
@@ -145,26 +154,27 @@ class DatasetCreate(BaseModel):
     filename: str
     raw_data: list[dict]
 
-@app.post("/datasets/save")
-def save_dataset(data: DatasetCreate, db: Session = Depends(get_async_db)
-):
+@app.post("/datasets/save", dependencies=[Depends(current_user)])
+async def save_dataset(
+        data: DatasetCreate,
+        db: AsyncSession = Depends(get_async_db)):   # ✅ AsyncSession here
     try:
         dataset = Dataset(
             title=data.title,
             description=data.description,
             filename=data.filename,
             raw_data=data.raw_data,
-            cleaned_data=None,
-            categorical_mappings=None,
-            normalization_params=None,
-            column_renames=None
         )
+
         db.add(dataset)
-        db.commit()
-        db.refresh(dataset)
-        return {"message": "Dataset saved", "id": dataset.id}
+        await db.flush()          # ✦ 1. push to DB, id is generated
+        await db.refresh(dataset) # ✦ 2. pull the PK back
+        await db.commit()         # ✦ 3. finalize transaction
+
+        return {"id": dataset.id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error saving dataset: {e}")
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/datasets", response_model=List[schemas.DatasetSummary])

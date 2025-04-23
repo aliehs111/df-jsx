@@ -9,6 +9,8 @@ import DataCleaning from './components/DataCleaning';
 import Dashboard from './components/Dashboard';
 import DatasetsList from './components/DatasetsList';
 import DatasetDetail from './components/DatasetDetail';
+import Navbar from './components/Navbar';
+import Footer from './components/Footer';
 
 function App() {
   const [user, setUser] = useState(null);  // holds user data from /users/me
@@ -45,6 +47,7 @@ function App() {
 
   return (
     <Router>
+    <Navbar />
       <Routes>
         <Route path="/" element={<SignIn setUser={setUser} />} />
         <Route path="/upload" element={<ProtectedRoute element={<FileUpload user={user} />} />} />
@@ -53,6 +56,7 @@ function App() {
         <Route path="/datasets" element={<ProtectedRoute element={<DatasetsList />} />} />
         <Route path="/datasets/:id" element={<ProtectedRoute element={<DatasetDetail />} />} />
       </Routes>
+      <Footer /> 
     </Router>
   );
 }
