@@ -1,23 +1,53 @@
-import { useEffect, useState } from 'react'
-import { CalendarIcon, EyeIcon } from '@heroicons/react/20/solid'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react';
+import { CalendarIcon, EyeIcon } from '@heroicons/react/20/solid';
+import { Link } from 'react-router-dom';
 
 export default function DatasetsList() {
-  const [datasets, setDatasets] = useState([])
+  const [datasets, setDatasets] = useState([]);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchDatasets = async () => {
-      try {
-        const res = await fetch('http://localhost:8000/datasets')
-        const data = await res.json()
-        setDatasets(data)
-      } catch (err) {
-        console.error('Failed to fetch datasets:', err)
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setError("Please log in to view datasets");
+        setLoading(false);
+        return;
       }
-    }
 
-    fetchDatasets()
-  }, [])
+      try {
+        const res = await fetch("http://localhost:8000/datasets", {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (res.status === 401) {
+          setError("Session expired. Please log in again.");
+          setLoading(false);
+          return;
+        }
+
+        if (!res.ok) {
+          throw new Error("Failed to fetch datasets");
+        }
+
+        const data = await res.json();
+        setDatasets(data);
+        setLoading(false);
+      } catch (err) {
+        setError(err.message);
+        setLoading(false);
+      }
+    };
+
+    fetchDatasets();
+  }, []);
+
+  if (loading) return <div className="text-center py-8">Loading datasets...</div>;
+  if (error) return <div className="text-red-500 text-center py-8">Error: {error}</div>;
+  if (!datasets.length) return <div className="text-center py-8">No datasets found.</div>;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -44,7 +74,6 @@ export default function DatasetsList() {
                   to={`/datasets/${dataset.id}`}
                   className="relative -mr-px inline-flex w-0 flex-1 items-center justify-center gap-x-3 rounded-bl-lg border border-transparent py-4 text-sm font-semibold text-indigo-600 hover:text-indigo-900"
                 >
-                   {dataset.title}
                   <EyeIcon className="h-5 w-5 text-indigo-400" aria-hidden="true" />
                   View
                 </Link>
@@ -54,5 +83,5 @@ export default function DatasetsList() {
         ))}
       </ul>
     </div>
-  )
+  );
 }

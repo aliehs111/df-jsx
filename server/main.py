@@ -29,7 +29,7 @@ def custom_generate_unique_id(route: APIRoute):
 # --- Create FastAPI app with custom ID function
 app = FastAPI(generate_unique_id_function=custom_generate_unique_id)
 
-# --- CORS settings (place immediately after app definition)
+# --- CORS settings ---
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -79,7 +79,7 @@ def custom_generate_unique_id(route: APIRoute):
 
 app.include_router(user_router)
 
-
+from sqlalchemy import select 
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
@@ -109,7 +109,8 @@ class CleanRequest(BaseModel):
 def read_root():
     return {"message": "Backend is alive!"}
 
-import asyncio
+
+from sqlalchemy.ext.asyncio import create_async_engine
 from database import engine, Base
 from auth.userbase import User  # Make sure this import is here
 from models import Dataset  # Same for any other models
@@ -177,16 +178,18 @@ async def save_dataset(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/datasets", response_model=List[schemas.DatasetSummary])
-def get_all_datasets(db: Session = Depends(get_async_db)):
-    return db.query(Dataset).order_by(Dataset.uploaded_at.desc()).all()
+@app.get(
+    "/datasets",
+    response_model=list[schemas.DatasetSummary],
+    dependencies=[Depends(current_user)],
+)
+async def list_datasets(db: AsyncSession = Depends(get_async_db)):
+    result = await db.execute(
+        select(Dataset).order_by(Dataset.uploaded_at.desc())
+    )
+    rows = result.scalars().all()
+    return [schemas.DatasetSummary.from_orm(row) for row in rows]
 
-@app.get("/datasets/{dataset_id}", response_model=schemas.Dataset)
-def get_dataset(dataset_id: int, db: Session = Depends(get_async_db)):
-    dataset = db.query(models.Dataset).filter(models.Dataset.id == dataset_id).first()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    return dataset
 
 
 
@@ -220,11 +223,19 @@ def clean_data(req: CleanRequest):
 
 
 # fallback option for CORS
-from fastapi.responses import JSONResponse
+# from fastapi.responses import JSONResponse
 
-@app.options("/{full_path:path}")
-async def preflight_handler():
-    return JSONResponse(content={"detail": "CORS preflight OK"})
+# @app.options("/{full_path:path}")
+# async def preflight_handler():
+#     return JSONResponse(
+#         content={"detail": "CORS preflight OK"},
+#         headers={
+#             "Access-Control-Allow-Origin": ", ".join(origins),
+#             "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+#             "Access-Control-Allow-Headers": "*",
+#             "Access-Control-Allow-Credentials": "true",
+#         },
+#     )
 
 
 
