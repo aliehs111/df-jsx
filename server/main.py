@@ -2,6 +2,9 @@
 import sys
 print("✅ Running Python from:", sys.executable)
 
+from schemas import Dataset as DatasetSchema         # Pydantic ✅
+from models  import Dataset as DatasetModel          # SQLAlchemy ✅
+
 
 from models import Base, Dataset
 from auth import userbase  # Import this too so the table gets created
@@ -222,24 +225,6 @@ def clean_data(req: CleanRequest):
     return {"data": cleaned_dict}
 
 
-# fallback option for CORS
-# from fastapi.responses import JSONResponse
-
-# @app.options("/{full_path:path}")
-# async def preflight_handler():
-#     return JSONResponse(
-#         content={"detail": "CORS preflight OK"},
-#         headers={
-#             "Access-Control-Allow-Origin": ", ".join(origins),
-#             "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-#             "Access-Control-Allow-Headers": "*",
-#             "Access-Control-Allow-Credentials": "true",
-#         },
-#     )
-
-
-
-# Dependency to get DB session
 def get_db():
     db = SessionLocal()
     try:
@@ -247,62 +232,84 @@ def get_db():
     finally:
         db.close()
 
-@app.get("/datasets/{dataset_id}/heatmap")
-def get_heatmap(dataset_id: int, db: Session = Depends(get_async_db)):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset or not dataset.raw_data:
-        raise HTTPException(status_code=404, detail="Dataset not found or no raw data")
-    
-    df = pd.DataFrame(dataset.raw_data)
+@app.get(
+    "/datasets/{dataset_id}",
+    response_model=DatasetSchema,                    # ← Pydantic schema here
+    dependencies=[Depends(current_user)],
+)
+async def get_dataset(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_async_db),
+):
+    row = await db.get(DatasetModel, dataset_id)     # async load
+    if row is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return row                                       # FastAPI converts via orm_mode
+                                
+
+
+
+@app.get(
+    "/datasets/{dataset_id}/heatmap",
+    dependencies=[Depends(current_user)]
+)
+async def get_heatmap(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_async_db)
+):
+    obj = await db.get(DatasetModel, dataset_id)
+    if not obj or not obj.raw_data:
+        raise HTTPException(status_code=404, detail="Dataset not found or empty")
+
+    df = pd.DataFrame(obj.raw_data)
 
     plt.figure(figsize=(10, 8))
-    sns.heatmap(df.corr(numeric_only=True), annot=True, cmap="coolwarm", fmt=".2f")
+    sns.heatmap(df.corr(numeric_only=True), annot=True,
+                cmap="coolwarm", fmt=".2f")
     buf = io.BytesIO()
     plt.savefig(buf, format="png", bbox_inches="tight")
     buf.seek(0)
     plt.close()
-    img_b64 = base64.b64encode(buf.read()).decode()
 
+    img_b64 = base64.b64encode(buf.read()).decode()
     return {"plot": f"data:image/png;base64,{img_b64}"}
 
 
-@app.get("/datasets/{dataset_id}/correlation")
-def get_correlation_heatmap(dataset_id: int, db: Session = Depends(get_async_db)):
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not dataset or not dataset.raw_data:
-        raise HTTPException(status_code=404, detail="Dataset or raw data not found")
+@app.get(
+    "/datasets/{dataset_id}/correlation",
+    dependencies=[Depends(current_user)]
+)
+async def correlation_matrix(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_async_db)
+):
+    obj = await db.get(DatasetModel, dataset_id)
+    if not obj or not obj.raw_data:
+        raise HTTPException(status_code=404, detail="Dataset not found")
 
-    try:
-        df = pd.DataFrame(dataset.raw_data)
+    df = pd.DataFrame(obj.raw_data).select_dtypes("number")
+    if df.empty:
+        raise HTTPException(status_code=400, detail="No numeric columns")
 
-        # Drop non-numeric columns if any
-        df_numeric = df.select_dtypes(include=['number'])
-        if df_numeric.empty:
-            raise HTTPException(status_code=400, detail="No numeric data available for correlation")
+    corr = df.corr()
+    plt.figure(figsize=(10, 8))
+    plt.imshow(corr, cmap="coolwarm", interpolation="nearest")
+    plt.xticks(range(len(corr.columns)), corr.columns, rotation=90)
+    plt.yticks(range(len(corr.columns)), corr.columns)
+    plt.colorbar();  plt.tight_layout()
 
-        # Create correlation matrix
-        corr = df_numeric.corr()
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png"); buf.seek(0);  plt.close()
 
-        # Plot heatmap
-        plt.figure(figsize=(10, 8))
-        plt.imshow(corr, cmap='coolwarm', interpolation='nearest')
-        plt.xticks(range(len(corr.columns)), corr.columns, rotation=90)
-        plt.yticks(range(len(corr.columns)), corr.columns)
-        plt.colorbar()
-        plt.tight_layout()
+    img_b64 = base64.b64encode(buf.read()).decode()
+    return {"heatmap": f"data:image/png;base64,{img_b64}"}
 
-        buf = io.BytesIO()
-        plt.savefig(buf, format="png")
-        buf.seek(0)
-        encoded = base64.b64encode(buf.read()).decode("utf-8")
-
-        return {"heatmap": f"data:image/png;base64,{encoded}"}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to generate heatmap: {e}")
-
-@app.post("/clean-preview")
-def preview_cleaning(data: Dict[str, Any], db: Session = Depends(get_async_db)):
+@app.post(
+    "/clean-preview",
+    dependencies=[Depends(current_user)],
+    response_model=dict   
+)
+def preview_cleaning(data: Dict[str, Any], db: AsyncSession = Depends(get_async_db)):
     dataset_id = data.get("dataset_id")
     operations = data.get("operations", {})
 

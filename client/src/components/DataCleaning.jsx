@@ -10,23 +10,46 @@ export default function DataCleaning() {
   const [options, setOptions] = useState({});
 
   useEffect(() => {
-    fetch(`http://localhost:8000/datasets/${id}`)
-      .then((res) => res.json())
+    const token = localStorage.getItem("token");
+    if (!token) return;
+  
+    fetch(`http://localhost:8000/datasets/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Cannot load dataset");
+        return res.json();
+      })
       .then((data) => setRawData(data.raw_data))
       .catch(console.error);
   }, [id]);
+  
 
   const handlePreview = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return alert("Please log in again");
+  
     const res = await fetch("http://localhost:8000/clean-preview", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ dataset_id: id, operations: options }),
     });
+  
+    if (!res.ok) {
+      alert("Preview failed");
+      return;
+    }
+  
     const data = await res.json();
     setBeforeStats(data.before_stats);
     setAfterStats(data.after_stats);
-    setCleanedData(data.preview);
-  };
+    // NOTE: backend returns no “preview” key – you probably want after_stats
+    // setCleanedData(data.preview);
+  }
+  
 
   const renderStats = (stats) => (
     <div className="bg-gray-50 p-4 rounded shadow text-sm">
