@@ -2,12 +2,14 @@ import React, { useState } from "react";
 
 export default function FileUpload() {
   /* ---------------- state ---------------- */
-  const [title, setTitle]             = useState("");
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [file, setFile]               = useState(null);
-  const [preview, setPreview]         = useState(null);
-  const [error, setError]             = useState(null);
-  const [success, setSuccess]         = useState(null);
+  const [file, setFile] = useState(null);
+  const [insights, setInsights] = useState(null); // New state for full insights
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const [s3Key, setS3Key] = useState(null);
 
   /* ------------- helpers ----------------- */
   const handleFileChange = (e) => {
@@ -19,8 +21,11 @@ export default function FileUpload() {
     e.preventDefault();
     if (!file) return;
 
-    // 🔑 grab the token saved after login
-    const token = localStorage.getItem("token");   // <── add this
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setError("Please sign in again.");
+      return;
+    }
 
     const formData = new FormData();
     formData.append("file", file);
@@ -29,8 +34,7 @@ export default function FileUpload() {
       const res = await fetch("http://localhost:8000/upload-csv", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${token}`,        // ✅ now defined
-          // no 'Content-Type' here – Let the browser add it with boundary
+          Authorization: `Bearer ${token}`,
         },
         body: formData,
       });
@@ -44,8 +48,10 @@ export default function FileUpload() {
       }
 
       const data = await res.json();
-      console.log("Preview data returned from backend:", data);
-      setPreview(data);
+      console.log("Data returned from backend:", data);
+      setInsights(data);
+      setPreview(data.preview);
+      setS3Key(data.s3_key);
       setError(null);
     } catch (err) {
       console.error(err);
@@ -57,45 +63,46 @@ export default function FileUpload() {
   const handleSave = async (e) => {
     e.preventDefault();
     if (!preview || !file) return;
-  
+
     const token = localStorage.getItem("token");
     if (!token) {
       setError("Please sign in again.");
       return;
     }
-  
+
     try {
+      const payload = {
+        title,
+        description,
+        filename: file.name,
+        raw_data: preview,
+        s3_key: s3Key,
+      };
+      console.log("Save payload:", payload);
+
       const res = await fetch("http://localhost:8000/datasets/save", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          title,
-          description,
-          filename: file.name,
-          raw_data: preview.preview, // <- adjust if your key is different
-        }),
+        body: JSON.stringify(payload),
       });
-  
+
       if (!res.ok) {
         const errPayload = await res.json().catch(() => ({}));
         throw new Error(errPayload.detail ?? "Save failed");
       }
-  
+
       const data = await res.json();
       setSuccess(`Dataset saved! ID: ${data.id}`);
       setError(null);
-      // optional resets:
-      // setTitle(""); setDescription(""); setFile(null);
     } catch (err) {
       console.error("Save error:", err);
       setError(err.message);
       setSuccess(null);
     }
   };
-
 
   return (
     <div className="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto">
@@ -111,7 +118,7 @@ export default function FileUpload() {
             required
           />
         </div>
-  
+
         <div>
           <label className="block text-sm font-medium text-gray-700">Description</label>
           <textarea
@@ -122,7 +129,7 @@ export default function FileUpload() {
             required
           />
         </div>
-  
+
         <div>
           <label className="block text-sm font-medium text-gray-700">CSV File</label>
           <input
@@ -133,7 +140,7 @@ export default function FileUpload() {
             required
           />
         </div>
-  
+
         <button
           type="submit"
           className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-500"
@@ -141,31 +148,31 @@ export default function FileUpload() {
           Upload and Preview
         </button>
       </form>
-  
+
       {error && <p className="text-red-600 mt-4">{error}</p>}
       {success && <p className="text-green-600 mt-4">{success}</p>}
-  
-      {preview && (
+
+      {insights && (
         <div className="mt-6 space-y-6">
           <div>
             <h3 className="text-lg font-semibold text-gray-700">Dataset Summary</h3>
-            <p><strong>Shape:</strong> {preview.shape?.[0]} rows × {preview.shape?.[1]} columns</p>
-            <p><strong>Columns:</strong> {preview.columns?.join(", ")}</p>
+            <p><strong>Shape:</strong> {insights.shape?.[0]} rows × {insights.shape?.[1]} columns</p>
+            <p><strong>Columns:</strong> {insights.columns?.join(", ")}</p>
           </div>
-  
+
           <div>
             <h3 className="font-semibold text-gray-700">Preview Rows</h3>
             <div className="overflow-auto max-h-64 border rounded">
               <table className="min-w-full text-xs">
                 <thead className="bg-gray-100 sticky top-0">
                   <tr>
-                    {Object.keys(preview.preview?.[0] || {}).map((col) => (
+                    {Object.keys(insights.preview?.[0] || {}).map((col) => (
                       <th key={col} className="px-2 py-1 border">{col}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.preview?.map((row, i) => (
+                  {insights.preview?.map((row, i) => (
                     <tr key={i}>
                       {Object.values(row).map((val, j) => (
                         <td key={j} className="px-2 py-1 border">{val}</td>
@@ -176,32 +183,32 @@ export default function FileUpload() {
               </table>
             </div>
           </div>
-  
+
           <div>
             <h3 className="font-semibold text-gray-700">Data Types</h3>
             <ul className="list-disc list-inside text-sm">
-              {Object.entries(preview.dtypes || {}).map(([col, dtype]) => (
+              {Object.entries(insights.dtypes || {}).map(([col, dtype]) => (
                 <li key={col}><strong>{col}</strong>: {dtype}</li>
               ))}
             </ul>
           </div>
-  
+
           <div>
             <h3 className="font-semibold text-gray-700">Missing Values</h3>
             <ul className="list-disc list-inside text-sm">
-              {Object.entries(preview.null_counts || {}).map(([col, count]) => (
+              {Object.entries(insights.null_counts || {}).map(([col, count]) => (
                 <li key={col}><strong>{col}</strong>: {count}</li>
               ))}
             </ul>
           </div>
-  
+
           <div>
             <h3 className="font-semibold text-gray-700">df.info()</h3>
             <pre className="overflow-auto max-h-64 bg-gray-100 p-4 rounded text-xs whitespace-pre-wrap">
-              {preview.info_output}
+              {insights.info_output}
             </pre>
           </div>
-  
+
           <form onSubmit={handleSave} className="pt-4 border-t">
             <h3 className="text-md font-semibold text-gray-800 mb-2">Save to Database</h3>
             <button
@@ -216,7 +223,6 @@ export default function FileUpload() {
     </div>
   );
 }
-
 
 
 

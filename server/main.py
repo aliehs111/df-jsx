@@ -1,28 +1,32 @@
 # server/main.py
-import sys
+import sys, io, base64
+from datetime import datetime
+from typing import List, Dict, Any
+
 print("✅ Running Python from:", sys.executable)
 
-from schemas import Dataset as DatasetSchema         # Pydantic ✅
-from models  import Dataset as DatasetModel          # SQLAlchemy ✅
-
-
-from models import Base, Dataset
-from auth import userbase  # Import this too so the table gets created
-from database import engine
-
-
-from fastapi import FastAPI
+# ---------- 3rd-party ----------
+import pandas as pd
+import matplotlib; matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import seaborn as sns
+from fastapi import (
+    FastAPI, File, UploadFile, Depends, HTTPException
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
-# --- Setup FastAPI app ---
-from fastapi import FastAPI, File, UploadFile, Depends, Form, Request, HTTPException, APIRouter
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+# ---------- local / project ----------
+from aws_client import get_s3, S3_BUCKET
+from database import get_async_db, engine
+from models import Dataset as DatasetModel, Base
+from schemas import Dataset as DatasetSchema, DatasetSummary
+from auth.userroutes import router as user_router, fastapi_users
 
-
-from auth.userroutes import router as user_router
-from auth.userroutes import fastapi_users  
 current_user = fastapi_users.current_user()
-
+s3 = get_s3()
 
 # --- Unique ID generator (define BEFORE FastAPI instance)
 def custom_generate_unique_id(route: APIRoute):
@@ -48,15 +52,13 @@ app.add_middleware(
 # --- Include routers ---
 app.include_router(user_router)
 
-from auth.userroutes import router as user_router
+
 
 # Standard library
 import io
 import base64
 from datetime import datetime
 from typing import List, Dict, Any
-
-# Third-party
 
 
 import matplotlib
@@ -67,28 +69,13 @@ import seaborn as sns  # ✅ Add this
 
 
 
-
-
-
-
-
-
-def custom_generate_unique_id(route: APIRoute):
-    tag = route.tags[0] if route.tags else "default"
-    return f"{tag}_{route.name}"
-
-
-
-
 app.include_router(user_router)
 
 from sqlalchemy import select 
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
-import matplotlib.pyplot as plt
 from pydantic import BaseModel
 
 # Internal modules
@@ -99,9 +86,6 @@ from database import engine
 from models import Base
 import schemas
 import models
-
-
-
 
 
 class CleanRequest(BaseModel):
@@ -126,37 +110,43 @@ async def init_models():
 async def on_startup():
     await init_models()
 
+from aws_client import upload_bytes 
 
 @app.post("/upload-csv", dependencies=[Depends(current_user)])
 async def upload_csv(file: UploadFile = File(...)):
+    # 1️⃣ read the bytes
     contents = await file.read()
+
+    # 2️⃣ push to S3  (helper imported from aws_client.py)
+    s3_key = upload_bytes(contents, file.filename)   # <-- NEW
+
+    # 3️⃣ DataFrame / preview
     df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
 
+    buf = io.StringIO()
+    df.info(buf=buf)
+    info_output = buf.getvalue()
 
-
-    # Capture df.info()
-    buffer = io.StringIO()
-    df.info(buf=buffer)
-    info_output = buffer.getvalue()
-
-    # Build the insights dictionary
     insights = {
-        "preview": df.head().to_dict(orient="records"),
-        "shape": list(df.shape),
-        "columns": df.columns.tolist(),
-        "dtypes": df.dtypes.astype(str).to_dict(),
-        "null_counts": df.isnull().sum().to_dict(),
-        "summary_stats": df.describe(include="all").fillna("").to_dict(),
-        "info_output": info_output
+        "preview"       : df.head().to_dict(orient="records"),
+        "shape"         : list(df.shape),
+        "columns"       : df.columns.tolist(),
+        "dtypes"        : df.dtypes.astype(str).to_dict(),
+        "null_counts"   : df.isnull().sum().to_dict(),
+        "summary_stats" : df.describe(include="all").fillna("").to_dict(),
+        "info_output"   : info_output,
+        "s3_key"        : s3_key,                    # <-- NEW
     }
-
     return insights
+
 
 class DatasetCreate(BaseModel):
     title: str
     description: str
     filename: str
     raw_data: list[dict]
+    s3_key: str
+
 
 @app.post("/datasets/save", dependencies=[Depends(current_user)])
 async def save_dataset(
@@ -168,6 +158,7 @@ async def save_dataset(
             description=data.description,
             filename=data.filename,
             raw_data=data.raw_data,
+            s3_key=data.s3_key
         )
 
         db.add(dataset)

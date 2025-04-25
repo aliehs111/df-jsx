@@ -9,6 +9,7 @@ class DatasetSummary(BaseModel):
     description: str
     filename: str
     uploaded_at: datetime
+    s3_key: Optional[str] = None
 
     class Config:
        orm_mode = True  # Pydantic v1 syntax
@@ -19,6 +20,7 @@ class Dataset(BaseModel):
     description: str
     filename: str
     raw_data: Any  # ✅ <- allow any JSON-serializable structure
+    s3_key: Optional[str] = None
     cleaned_data: Optional[Any] = None
     categorical_mappings: Optional[Dict[str, Any]] = None
     normalization_params: Optional[Dict[str, Any]] = None

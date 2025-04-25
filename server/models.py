@@ -9,7 +9,7 @@ class Dataset(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     filename = Column(String(255), nullable=False)
-
+    s3_key = Column(String(512), nullable=True)
     # keep JSON if on MySQL 5.7+/8, otherwise switch to Text
     raw_data = Column(JSON, nullable=True)
     cleaned_data = Column(JSON, nullable=True)
