@@ -10,8 +10,9 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 load_dotenv()
 
 # Replace sync URL with async-compatible driver (aiomysql)
-DATABASE_URL = os.getenv("DATABASE_URL").replace("mysql+pymysql://", "mysql+aiomysql://")
+# DATABASE_URL = os.getenv("DATABASE_URL").replace("mysql+pymysql://", "mysql+aiomysql://")
 
+DATABASE_URL = os.getenv("JAWSDB_URL", "mysql+pymysql://root:@localhost:3306/dfjsx")
 # Create async engine
 engine = create_async_engine(DATABASE_URL, echo=True)
 
