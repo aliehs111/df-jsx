@@ -19,7 +19,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ---------- local / project ----------
-from aws_client import get_s3, S3_BUCKET
+from .aws_client import get_s3, S3_BUCKET
+
 from database import get_async_db, engine
 from models import Dataset as DatasetModel, Base
 from schemas import Dataset as DatasetSchema, DatasetSummary
