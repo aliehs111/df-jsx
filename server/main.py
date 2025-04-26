@@ -68,7 +68,8 @@ import seaborn as sns  # ✅ Add this
 
 
 
-
+from fastapi.staticfiles import StaticFiles
+app.mount("/", StaticFiles(directory="../client/build", html=True), name="static")
 app.include_router(user_router)
 
 from sqlalchemy import select 
