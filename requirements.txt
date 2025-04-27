@@ -9,7 +9,8 @@ python-dotenv==1.1.0
 matplotlib==3.10.1
 seaborn==0.13.2
 aiomysql==0.2.0
-fastapi-users[sqlalchemy]==12.1.0
-email-validator>=2.0,<2.1
 
+fastapi-users==12.1.0
+fastapi-users-db-sqlalchemy==7.0.0
 
+email-validator>=2.0,<3.0
