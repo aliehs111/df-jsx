@@ -1,34 +1,41 @@
-# server/database.py
-
 import os
-from dotenv import load_dotenv
 
+# ──────────── only load .env when running locally ────────────
+if os.environ.get("DYNO") is None:
+    from dotenv import load_dotenv
+    load_dotenv()
+
+# ──────────── now import SQLAlchemy pieces ────────────
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Load from .env
-load_dotenv()
-
-# Replace sync URL with async-compatible driver (aiomysql)
-# DATABASE_URL = os.getenv("DATABASE_URL").replace("mysql+pymysql://", "mysql+aiomysql://")
-# Use JAWSDB_URL (Heroku) or DATABASE_URL (.env) or raise error
-DATABASE_URL = os.getenv("JAWSDB_URL") or os.getenv("DATABASE_URL")
+# ──────────── pick up your Heroku URL (or local .env) ────────────
+DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
-    raise ValueError("Neither JAWSDB_URL nor DATABASE_URL is set")
-# Create async engine
+    raise RuntimeError("DATABASE_URL environment variable is not set")
+
+# ──────────── swap in the async driver if it wasn’t already ────────────
+if DATABASE_URL.startswith("mysql+pymysql://"):
+    # only replace first occurrence
+    DATABASE_URL = DATABASE_URL.replace(
+        "mysql+pymysql://", 
+        "mysql+aiomysql://", 
+        1
+    )
+
+# ──────────── create your async engine & session factory ────────────
 engine = create_async_engine(DATABASE_URL, echo=True)
 
-# Async session factory
 AsyncSessionLocal = sessionmaker(
     bind=engine,
     class_=AsyncSession,
-    expire_on_commit=False
+    expire_on_commit=False,
 )
 
-# Declare base
+# ──────────── your declarative base ────────────
 Base = declarative_base()
 
-# Dependency for FastAPI to use in routes
+# ──────────── FastAPI dependency ────────────
 async def get_async_db():
     async with AsyncSessionLocal() as session:
         yield session
