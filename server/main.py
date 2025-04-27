@@ -24,7 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 # ---------- local / project ----------
 
-from aws_client import get_s3, S3_BUCKET
+# absolute import from the package root
+from server.aws_client import get_s3, S3_BUCKET
+
 
 
 from database import get_async_db, engine
