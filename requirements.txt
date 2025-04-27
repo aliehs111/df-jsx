@@ -10,5 +10,6 @@ matplotlib==3.10.1
 seaborn==0.13.2
 aiomysql==0.2.0
 fastapi-users[sqlalchemy]==10.2.0
-email-validator<1.4 and >=1.1.0
+email-validator>=1.1.0,<1.4
+
 
