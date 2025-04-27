@@ -1,4 +1,8 @@
 # server/main.py
+from dotenv import load_dotenv
+load_dotenv()
+
+
 import sys, io, base64
 from datetime import datetime
 from typing import List, Dict, Any
@@ -19,8 +23,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # ---------- local / project ----------
-# absolute import
-from server.aws_client import get_s3, S3_BUCKET
+
+from aws_client import get_s3, S3_BUCKET
 
 
 from database import get_async_db, engine
@@ -72,7 +76,7 @@ import seaborn as sns  # ✅ Add this
 
 
 from fastapi.staticfiles import StaticFiles
-app.mount("/", StaticFiles(directory="../client/build", html=True), name="static")
+# app.mount("/", StaticFiles(directory="../client/build", html=True), name="static")
 app.include_router(user_router)
 
 from sqlalchemy import select 
