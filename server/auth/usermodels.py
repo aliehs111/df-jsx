@@ -2,8 +2,8 @@ from fastapi_users import BaseUserManager, IntegerIDMixin
 from fastapi import Depends
 from typing import AsyncGenerator
 
-from auth.userdatabase import get_user_db
-from auth.userbase import User
+from server.auth.userdatabase import get_user_db
+from server.auth.userbase import User
 
 class UserManager(IntegerIDMixin, BaseUserManager[User, int]):
     user_db_model = User

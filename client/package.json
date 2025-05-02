@@ -4,14 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-  "dev": "concurrently \"npm:frontend\" \"npm:backend\"",
-  "frontend": "vite",
-  "backend": "cd ../server && conda run -n dfjsx-backend --no-capture-output uvicorn main:app --reload --port 8000",
-  "build": "vite build",
-  "lint": "eslint .",
-  "preview": "vite preview"
-}
-,
+    "backend": "bash -c \"cd .. && uvicorn server.main:app --reload --port 8000\"",
+    "frontend": "vite",
+    "dev": "concurrently \"npm:frontend\" \"npm:backend\"",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
   "dependencies": {
     "@headlessui/react": "^2.2.0",
     "@heroicons/react": "^2.2.0",

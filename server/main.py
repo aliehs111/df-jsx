@@ -1,38 +1,49 @@
-# server/main.py
-from dotenv import load_dotenv
-load_dotenv()
+# ─────────────────────────────────────────────────────────────────────────────
+#  server/main.py  –  CLEAN IMPORTS
+#    • Std-lib   → no external deps
+#    • 3rd-party → wheels from requirements.txt
+#    • Local     → always prefix with  “server.”  so they resolve everywhere
+# ─────────────────────────────────────────────────────────────────────────────
 
-
-import sys, io, base64
+# ---------- Standard library ----------
+import sys
+import io
+import base64
 from datetime import datetime
 from typing import List, Dict, Any
 
-print("✅ Running Python from:", sys.executable)
+# ---------- Third-party ----------
+from dotenv import load_dotenv
+load_dotenv()                          # load .env first
 
-# ---------- 3rd-party ----------
 import pandas as pd
-import matplotlib; matplotlib.use("Agg")
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
-from fastapi import (
-    FastAPI, File, UploadFile, Depends, HTTPException
-)
+
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
+from fastapi.staticfiles import StaticFiles
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-# ---------- local / project ----------
+from pydantic import BaseModel
 
-# absolute import from the package root
-from server.aws_client import get_s3, S3_BUCKET
+# ---------- Local / project ----------
+from server.aws_client import get_s3, upload_bytes, S3_BUCKET
+from server.database import get_async_db, engine, AsyncSessionLocal
+from server.models import Dataset, Base
+from server.schemas import Dataset as DatasetSchema, DatasetSummary
+import server.schemas as schemas
+from server.auth.userroutes import router as user_router, fastapi_users
+from server.auth.userbase import User
 
-
-
-from database import get_async_db, engine
-from models import Dataset as DatasetModel, Base
-from schemas import Dataset as DatasetSchema, DatasetSummary
-from auth.userroutes import router as user_router, fastapi_users
+# ─────────────────────────────────────────────────────────────────────────────
+#  END IMPORTS
+# ─────────────────────────────────────────────────────────────────────────────
 
 current_user = fastapi_users.current_user()
 s3 = get_s3()
@@ -49,53 +60,20 @@ app = FastAPI(generate_unique_id_function=custom_generate_unique_id)
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# --- Include routers ---
-app.include_router(user_router)
 
-
-
-# Standard library
-import io
-import base64
-from datetime import datetime
-from typing import List, Dict, Any
-
-
-import matplotlib
-matplotlib.use("Agg")  # Avoid macOS GUI crash
-import matplotlib.pyplot as plt
-import seaborn as sns  # ✅ Add this
-
-
-
-from fastapi.staticfiles import StaticFiles
 # app.mount("/", StaticFiles(directory="../client/build", html=True), name="static")
 app.include_router(user_router)
-
-from sqlalchemy import select 
-from sqlalchemy.orm import Session
-from typing import List, Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
-import pandas as pd
-from pydantic import BaseModel
-
-# Internal modules
-from database import AsyncSessionLocal, get_async_db
-
-from models import Dataset
-from database import engine
-from models import Base
-import schemas
-import models
 
 
 class CleanRequest(BaseModel):
@@ -107,11 +85,6 @@ def read_root():
     return {"message": "Backend is alive!"}
 
 
-from sqlalchemy.ext.asyncio import create_async_engine
-from database import engine, Base
-from auth.userbase import User  # Make sure this import is here
-from models import Dataset  # Same for any other models
-
 async def init_models():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -120,7 +93,6 @@ async def init_models():
 async def on_startup():
     await init_models()
 
-from aws_client import upload_bytes 
 
 @app.post("/upload-csv", dependencies=[Depends(current_user)])
 async def upload_csv(file: UploadFile = File(...)):

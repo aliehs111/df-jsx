@@ -1,16 +1,22 @@
-fastapi==0.115.12
-uvicorn==0.34.1
-gunicorn==23.0.0
-boto3==1.38.2
-pandas==2.2.3
-sqlalchemy==2.0.40
-pymysql==1.1.1
-python-dotenv==1.1.0
-matplotlib==3.10.1
-seaborn==0.13.2
 aiomysql==0.2.0
-
+boto3==1.38.2
+email-validator>=2.0,<3.0
+fastapi==0.115.12
 fastapi-users==12.1.0
 fastapi-users-db-sqlalchemy==7.0.0
+gunicorn==23.0.0
+httpx==0.28.1           # optional but common
+matplotlib==3.10.1
+numpy==2.2.4
+pandas==2.2.3
+passlib==1.7.4
+pyjwt==2.7.0
+python-dotenv==1.1.0
+python-multipart==0.0.6
+pymysql==1.1.1
+scikit-learn==1.5.2     # only if you import sklearn
+scipy==1.15.2           # only if you import scipy
+seaborn==0.13.2
+sqlalchemy==2.0.40
+uvicorn==0.34.1
 
-email-validator>=2.0,<3.0
