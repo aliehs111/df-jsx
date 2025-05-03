@@ -80,7 +80,7 @@ class CleanRequest(BaseModel):
     data: List[Dict[str, Any]]
     operations: Dict[str, Any]
 
-@app.get("/")
+@app.get("/health")
 def read_root():
     return {"message": "Backend is alive!"}
 
