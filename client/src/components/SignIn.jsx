@@ -2,7 +2,10 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-export default function SignIn() {
+
+
+  // client/src/components/SignIn.jsx
+export default function SignIn({ setUser }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -11,10 +14,9 @@ export default function SignIn() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-  
+
     try {
-      // Step 1: Login to get token (relative URL)
-      const response = await fetch('/auth/jwt/login', {
+      const response = await fetch('/auth/jwt/login', { 
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -24,41 +26,36 @@ export default function SignIn() {
           password: password,
         }).toString(),
       });
-  
-      console.log("STATUS:", response.status);
-      console.log("HEADERS:", Array.from(response.headers.entries()));
-  
-      const data = await response.json().catch((err) => {
-        console.error("❌ Failed to parse JSON:", err);
-        return null;
-      });
-      console.log("✅ Login response data:", data);
-  
-      if (!response.ok || !data) {
-        throw new Error('Login failed');
-      }
-  
-      const token = data.access_token;
-      localStorage.setItem('token', token);
-  
-      // Step 2: Get current user info (also relative)
+      const data = await response.json();
+      if (!response.ok) throw new Error('Login failed');
+
+      localStorage.setItem('token', data.access_token);
+
+      console.log('✅ Login OK, fetching current user…');
       const userRes = await fetch('/users/me', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${data.access_token}` },
       });
-  
+      if (!userRes.ok) {
+        console.error('❌ /users/me failed:', await userRes.text());
+        throw new Error('Couldn’t load current user');
+      }
       const userData = await userRes.json();
       localStorage.setItem('user', JSON.stringify(userData));
-  
-      // Step 3: Redirect to dashboard
+
+      // **Notify App that we now have a user**
+      setUser(userData);
+      console.log('✅ App.user updated, now navigating…');
+
+      console.log('✅ About to navigate to /dashboard');
       navigate('/dashboard');
-  
+
     } catch (err) {
       console.error('Login error:', err);
       setError('Invalid email or password');
     }
   };
+
+
   
   return (
     <div className="flex min-h-full flex-1 flex-col justify-center px-6 py-12 lg:px-8">
