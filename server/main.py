@@ -72,12 +72,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount(
-    "/",
-    StaticFiles(directory="../client/dist", html=True),
-    name="static",
-)
-
 app.include_router(user_router)
 
 
@@ -377,5 +371,10 @@ def get_plot():
     img_b64 = base64.b64encode(buf.read()).decode()
     return {"plot": f"data:image/png;base64,{img_b64}"}
 
+app.mount(
+    "/",
+    StaticFiles(directory="client/dist", html=True),
+    name="static",
+)
 
 
