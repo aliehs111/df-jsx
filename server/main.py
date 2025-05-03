@@ -8,6 +8,7 @@
 # ---------- Standard library ----------
 import sys
 import os
+from pathlib import Path
 import io
 import base64
 from datetime import datetime
