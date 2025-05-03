@@ -72,7 +72,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/", StaticFiles(directory="../client/build", html=True), name="static")
+app.mount(
+    "/",
+    StaticFiles(directory="../client/dist", html=True),
+    name="static",
+)
+
 app.include_router(user_router)
 
 
