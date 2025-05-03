@@ -13,8 +13,8 @@ export default function SignIn() {
     setError('');
   
     try {
-      // Step 1: Login to get token
-      const response = await fetch('http://localhost:8000/auth/jwt/login', {
+      // Step 1: Login to get token (relative URL)
+      const response = await fetch('/auth/jwt/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -32,7 +32,6 @@ export default function SignIn() {
         console.error("❌ Failed to parse JSON:", err);
         return null;
       });
-  
       console.log("✅ Login response data:", data);
   
       if (!response.ok || !data) {
@@ -42,8 +41,8 @@ export default function SignIn() {
       const token = data.access_token;
       localStorage.setItem('token', token);
   
-      // Step 2: Get current user info
-      const userRes = await fetch('http://localhost:8000/users/me', {
+      // Step 2: Get current user info (also relative)
+      const userRes = await fetch('/users/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -54,6 +53,7 @@ export default function SignIn() {
   
       // Step 3: Redirect to dashboard
       navigate('/dashboard');
+  
     } catch (err) {
       console.error('Login error:', err);
       setError('Invalid email or password');

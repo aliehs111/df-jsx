@@ -17,7 +17,7 @@ export default function DatasetsList() {
       }
 
       try {
-        const res = await fetch("http://localhost:8000/datasets", {
+        const res = await fetch("/datasets", {
           headers: {
             Authorization: `Bearer ${token}`,
           },

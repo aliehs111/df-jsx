@@ -13,7 +13,7 @@ export default function DataCleaning() {
     const token = localStorage.getItem("token");
     if (!token) return;
   
-    fetch(`http://localhost:8000/datasets/${id}`, {
+    fetch(`/datasets/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => {
@@ -29,7 +29,7 @@ export default function DataCleaning() {
     const token = localStorage.getItem("token");
     if (!token) return alert("Please log in again");
   
-    const res = await fetch("http://localhost:8000/clean-preview", {
+    const res = await fetch("/clean-preview", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

@@ -5,7 +5,7 @@ const CorrelationHeatmap = ({ datasetId }) => {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch(`http://localhost:8000/datasets/${datasetId}/correlation`)
+    fetch(`/datasets/${datasetId}/correlation`)
       .then(res => res.json())
       .then(data => setHeatmap(data.heatmap))
       .catch(err => {

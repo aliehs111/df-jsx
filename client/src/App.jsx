@@ -23,7 +23,7 @@ function App() {
       return;
     }
 
-    axios.get('http://localhost:8000/users/me', {
+    axios.get('/users/me', {
       headers: {
         Authorization: `Bearer ${token}`,
       },

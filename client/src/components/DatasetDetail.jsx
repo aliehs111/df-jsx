@@ -15,7 +15,7 @@ export default function DatasetDetail() {
       return;
     }
 
-    fetch(`http://localhost:8000/datasets/${id}`, {
+    fetch(`/datasets/${id}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(res => {
@@ -32,7 +32,7 @@ export default function DatasetDetail() {
   const fetchHeatmap = async () => {
     const token = localStorage.getItem("token");
     const res = await fetch(
-      `http://localhost:8000/datasets/${id}/heatmap`,
+      `/datasets/${id}/heatmap`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!res.ok) {

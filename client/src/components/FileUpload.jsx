@@ -31,7 +31,7 @@ export default function FileUpload() {
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://localhost:8000/upload-csv", {
+      const res = await fetch("/upload-csv", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -80,7 +80,7 @@ export default function FileUpload() {
       };
       console.log("Save payload:", payload);
 
-      const res = await fetch("http://localhost:8000/datasets/save", {
+      const res = await fetch("/datasets/save", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
