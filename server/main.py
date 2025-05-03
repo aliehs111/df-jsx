@@ -7,6 +7,7 @@
 
 # ---------- Standard library ----------
 import sys
+import os
 import io
 import base64
 from datetime import datetime
@@ -371,10 +372,14 @@ def get_plot():
     img_b64 = base64.b64encode(buf.read()).decode()
     return {"plot": f"data:image/png;base64,{img_b64}"}
 
-app.mount(
-    "/",
-    StaticFiles(directory="client/dist", html=True),
-    name="static",
-)
+# Only mount the React build when running on Heroku (DYNO env var present)
+if "DYNO" in os.environ:
+    DIST = Path(__file__).resolve().parent.parent / "client" / "dist"
+    if DIST.exists():
+        app.mount("/", StaticFiles(directory=str(DIST), html=True), name="static")
+    else:
+        print(f"⚠️  No frontend build found at {DIST}, skipping static mount")
+else:
+    print("⚠️  Development mode: skipping static mount")
 
 
