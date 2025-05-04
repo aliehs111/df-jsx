@@ -186,7 +186,7 @@ async def get_dataset(
 
 
 
-@app.post("/clean")
+@app.post("/datasets/{dataset_id}/clean")
 def clean_data(req: CleanRequest):
     df = pd.DataFrame(req.data)
 
@@ -200,9 +200,9 @@ def clean_data(req: CleanRequest):
     cleaned_dict = df.to_dict(orient="records")
     filename = req.operations.get("filename", "unknown.csv")
 
-    db = SessionLocal()
+    db = AsyncSession = Depends(get_async_db),
     try:
-        new_dataset = Dataset(
+        new_dataset = DatasetModel(
             filename=filename,
             cleaned_data=cleaned_dict
         )
@@ -216,7 +216,7 @@ def clean_data(req: CleanRequest):
 
 
 def get_db():
-    db = SessionLocal()
+    db = AsyncSession = Depends(get_async_db),
     try:
         yield db
     finally:
@@ -281,15 +281,17 @@ async def correlation_matrix(
     return {"heatmap": f"data:image/png;base64,{img_b64}"}
 
 @app.post(
-    "/clean-preview",
+    "/datasets/{dataset_id}/clean-preview",
     dependencies=[Depends(current_user)],
     response_model=dict   
 )
-def preview_cleaning(data: Dict[str, Any], db: AsyncSession = Depends(get_async_db)):
+async def preview_cleaning(data: Dict[str, Any], db: AsyncSession = Depends(get_async_db)):
     dataset_id = data.get("dataset_id")
     operations = data.get("operations", {})
 
-    dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
+    stmt = select(DatasetModel).filter(DatasetModel.id == dataset_id)
+    result = await db.execute(stmt)
+    dataset = result.scalars().first()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 

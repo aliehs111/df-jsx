@@ -29,7 +29,7 @@ export default function DataCleaning() {
     const token = localStorage.getItem("token");
     if (!token) return alert("Please log in again");
   
-    const res = await fetch("/clean-preview", {
+    const res = await fetch("/datasets/${id}/clean-preview", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
