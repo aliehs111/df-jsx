@@ -6,7 +6,7 @@
  */
 
 
-#root {
+ #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
@@ -20,10 +20,10 @@
   transition: filter 300ms;
 }
 .logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+  filter: drop-shadow(0 0 2em #3B82F6); /* Updated to secondary color */
 }
 .logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+  filter: drop-shadow(0 0 2em #10B981); /* Updated to accent color */
 }
 
 @keyframes logo-spin {
@@ -43,8 +43,80 @@
 
 .card {
   padding: 2em;
+  background-color: #F9FAFB; /* Neutral light for card backgrounds */
+  border: 1px solid #1F2937; /* Neutral dark for borders */
+  border-radius: 8px;
 }
 
 .read-the-docs {
-  color: #888;
+  color: #1F2937; /* Neutral dark for better contrast */
+}
+
+/* New styles for data tables */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: #F9FAFB; /* Neutral light */
+  color: #1F2937; /* Neutral dark */
+}
+.table th,
+.table td {
+  padding: 0.75em;
+  border: 1px solid #1F2937; /* Neutral dark */
+}
+.table th {
+  background-color: #1E3A8A; /* Primary */
+  color: #F9FAFB; /* Neutral light */
+}
+.table tr:hover {
+  background-color: #3B82F6; /* Secondary */
+  color: #F9FAFB; /* Neutral light */
+}
+
+/* New styles for buttons */
+.btn-primary {
+  background-color: #3B82F6; /* Secondary */
+  color: #F9FAFB; /* Neutral light */
+  border-radius: 8px;
+  padding: 0.6em 1.2em;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.25s;
+}
+.btn-primary:hover {
+  background-color: #1E3A8A; /* Primary */
+}
+.btn-success {
+  background-color: #10B981; /* Accent */
+  color: #F9FAFB; /* Neutral light */
+  border-radius: 8px;
+  padding: 0.6em 1.2em;
+  border: none;
+  cursor: pointer;
+}
+.btn-success:hover {
+  background-color: #059669; /* Darker accent */
+}
+
+/* New styles for forms */
+.form-group {
+  margin-bottom: 1em;
+}
+.form-group label {
+  color: #1F2937; /* Neutral dark */
+  font-weight: 500;
+}
+.form-group input,
+.form-group select {
+  border: 1px solid #1F2937; /* Neutral dark */
+  border-radius: 4px;
+  padding: 0.5em;
+  background-color: #F9FAFB; /* Neutral light */
+  color: #1F2937; /* Neutral dark */
+}
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #3B82F6; /* Secondary */
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 }

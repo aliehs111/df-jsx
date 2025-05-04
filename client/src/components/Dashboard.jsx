@@ -1,7 +1,11 @@
 import { Disclosure, DisclosureButton, DisclosurePanel, Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
 import { MagnifyingGlassIcon } from '@heroicons/react/20/solid'
 import { Bars3Icon, BellIcon, XMarkIcon } from '@heroicons/react/24/outline'
+import '../App.css';   
+import logo512 from '../assets/logo512.png'
 
+
+const Navlogo = logo512
 const user = {
   name: 'Tom Cook',
   email: 'tom@example.com',
@@ -37,18 +41,18 @@ export default function Example() {
         ```
       */}
       <div className="min-h-full">
-        <div className="bg-indigo-600 pb-32">
-          <Disclosure as="nav" className="border-b border-indigo-300/25 bg-indigo-600 lg:border-none">
+        <div className="bg-cyan-300 pb-32">
+          <Disclosure as="nav" className="border-b border-indigo-300/25 bg-cyan-200 lg:border-none">
             <div className="mx-auto max-w-7xl px-2 sm:px-4 lg:px-8">
               <div className="relative flex h-16 items-center justify-between lg:border-b lg:border-indigo-400/25">
                 <div className="flex items-center px-2 lg:px-0">
-                  <div className="shrink-0">
-                    <img
-                      alt="Your Company"
-                      src="https://tailwindcss.com/plus-assets/img/logos/mark.svg?color=indigo&shade=300"
-                      className="block size-8"
-                    />
-                  </div>
+                  {/* <div className="shrink-0">
+                  <img
+            src={Navlogo}
+            alt="dfjsx logo"
+            className="h-16 w-16 object-contain"
+          />
+                  </div> */}
                   <div className="hidden lg:ml-10 lg:block">
                     <div className="flex space-x-4">
                       {navigation.map((item) => (
@@ -84,7 +88,7 @@ export default function Example() {
                 </div>
                 <div className="flex lg:hidden">
                   {/* Mobile menu button */}
-                  <DisclosureButton className="group relative inline-flex items-center justify-center rounded-md bg-indigo-600 p-2 text-indigo-200 hover:bg-indigo-500/75 hover:text-white focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-indigo-600">
+                  <DisclosureButton className="group relative inline-flex items-center justify-center rounded-md bg-lime-500 p-2 text-lime-200 hover:bg-indigo-500/75 hover:text-white focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-indigo-600">
                     <span className="absolute -inset-0.5" />
                     <span className="sr-only">Open main menu</span>
                     <Bars3Icon aria-hidden="true" className="block size-6 group-data-[open]:hidden" />
@@ -95,7 +99,7 @@ export default function Example() {
                   <div className="flex items-center">
                     <button
                       type="button"
-                      className="relative shrink-0 rounded-full bg-indigo-600 p-1 text-indigo-200 hover:text-white focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-indigo-600"
+                      className="relative shrink-0 rounded-full bg-lime-600 p-1 text-indigo-200 hover:text-white focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-indigo-600"
                     >
                       <span className="absolute -inset-1.5" />
                       <span className="sr-only">View notifications</span>
