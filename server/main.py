@@ -37,8 +37,9 @@ from pydantic import BaseModel
 # ---------- Local / project ----------
 from server.aws_client import get_s3, upload_bytes, S3_BUCKET
 from server.database import get_async_db, engine, AsyncSessionLocal
-from server.models import Dataset, Base
-from server.schemas import Dataset as DatasetSchema, DatasetSummary
+from server.models import Dataset       as DatasetModel
+from server.models import Base
+import server.schemas      as schemas
 import server.schemas as schemas
 from server.auth.userroutes import router as user_router, fastapi_users
 from server.auth.userbase import User
@@ -162,11 +163,26 @@ async def save_dataset(
 )
 async def list_datasets(db: AsyncSession = Depends(get_async_db)):
     result = await db.execute(
-        select(Dataset).order_by(Dataset.uploaded_at.desc())
+        select(DatasetModel).order_by(DatasetModel.uploaded_at.desc())
     )
     rows = result.scalars().all()
     return [schemas.DatasetSummary.from_orm(row) for row in rows]
 
+
+@app.get(
+    "/datasets/{dataset_id}",
+    response_model=schemas.Dataset,       # Pydantic schema for a single dataset
+    dependencies=[Depends(current_user)],
+)
+async def get_dataset(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_async_db),
+):
+    # now DatasetModel is defined
+    row = await db.get(DatasetModel, dataset_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return row   # FastAPI will convert it to DatasetSchema via orm_mode
 
 
 
@@ -205,21 +221,7 @@ def get_db():
         yield db
     finally:
         db.close()
-
-@app.get(
-    "/datasets/{dataset_id}",
-    response_model=DatasetSchema,                    # ← Pydantic schema here
-    dependencies=[Depends(current_user)],
-)
-async def get_dataset(
-    dataset_id: int,
-    db: AsyncSession = Depends(get_async_db),
-):
-    row = await db.get(DatasetModel, dataset_id)     # async load
-    if row is None:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    return row                                       # FastAPI converts via orm_mode
-                                
+                              
 
 
 
