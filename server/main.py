@@ -137,7 +137,7 @@ async def save_dataset(
         data: DatasetCreate,
         db: AsyncSession = Depends(get_async_db)):   # ✅ AsyncSession here
     try:
-        dataset = Dataset(
+        dataset = DatasetModel(
             title=data.title,
             description=data.description,
             filename=data.filename,
