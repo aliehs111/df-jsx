@@ -10,14 +10,14 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-50">
       {/* <Navbar /> */}
 
-      <header className="bg-cyan-300 py-8">
+      <header className="bg-cyan-300 py-8 pb-32">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <h1 className="text-4xl font-bold text-white">Dashboard</h1>
         </div>
       </header>
 
       <main className="-mt-12 mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8 space-y-6">
-        <QuickStart />
+        {/* <QuickStart /> */}
         <KPICards />
 
         <div className="grid gap-6 lg:grid-cols-2">

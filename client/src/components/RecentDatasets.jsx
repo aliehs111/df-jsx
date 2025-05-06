@@ -17,7 +17,7 @@ export default function RecentDatasets() {
 
   return (
     <div className="rounded-lg bg-white p-6 shadow">
-      <h2 className="text-xl font-semibold mb-4">Recent Datasets</h2>
+      <h2 className="text-xl text-blue-800 font-semibold mb-4">Recent Datasets</h2>
       <ul className="space-y-3">
         {datasets.map(ds => (
           <li key={ds.id} className="flex justify-between items-center">

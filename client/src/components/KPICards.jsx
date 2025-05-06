@@ -22,7 +22,7 @@ export default function KPICards() {
   }, [])
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-blue-800">
       <Card title="📦 Total Datasets" value={kpis.totalDatasets} />
       <Card title="🔢 Rows Processed"  value={kpis.totalRows.toLocaleString()} />
       <Card title="📊 Total Columns"  value={kpis.totalCols} />
@@ -33,9 +33,9 @@ export default function KPICards() {
 
 function Card({ title, value }) {
   return (
-    <div className="rounded-lg bg-white p-6 shadow">
-      <h3 className="text-sm font-medium text-gray-500">{title}</h3>
-      <p className="mt-2 text-2xl font-semibold text-gray-900">{value}</p>
+    <div className="rounded-lg bg-white p-6 shadow text-blue-800">
+      <h3 className="text-sm font-medium text-blue-800">{title}</h3>
+      <p className="mt-2 text-2xl font-semibold ext-blue-800">{value}</p>
     </div>
   )
 }

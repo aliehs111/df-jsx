@@ -8,6 +8,7 @@
 # ---------- Standard library ----------
 import sys
 import os
+print("📢 Connecting to database at:", os.getenv("DATABASE_URL") or os.getenv("JAWSDB_URL"))
 from pathlib import Path
 import io
 import base64
@@ -24,7 +25,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
@@ -183,6 +184,43 @@ async def get_dataset(
     if row is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return row   # FastAPI will convert it to DatasetSchema via orm_mode
+from fastapi import status
+
+@app.delete(
+    "/datasets/{dataset_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(current_user)],
+)
+async def delete_dataset(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_async_db),
+):
+    print(f"🔴 delete_dataset called for id={dataset_id}")
+
+    ds = await db.get(DatasetModel, dataset_id)
+    if not ds:
+        print("🔴 Dataset not found (404)")
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # delete the S3 object if there is one
+    if ds.s3_key:
+        try:
+            s3.delete_object(Bucket=S3_BUCKET, Key=ds.s3_key)
+            print(f"🔴 Deleted S3 key {ds.s3_key}")
+        except Exception as e:
+            print("🔴 S3 delete error:", e)
+
+    # do the DB delete + commit
+    await db.delete(ds)   
+    await db.commit()
+    print("🔴 Committed delete")
+
+    # **debug step: try to fetch it again**
+    still = await db.get(DatasetModel, dataset_id)
+    print("🔴 After commit, db.get returned:", still)
+
+    return
+
 
 
 
