@@ -1,53 +1,168 @@
-import { Link, useNavigate, NavLink } from 'react-router-dom'
-import { useEffect, useState } from 'react'
-
-import logo512 from '../assets/logo512.png'
+// src/components/Navbar.jsx
+import { NavLink, useNavigate } from 'react-router-dom'
+import { Disclosure } from '@headlessui/react'
+import {
+  Bars3Icon,
+  XMarkIcon,
+  ArrowRightOnRectangleIcon,
+  UserPlusIcon,
+  BellIcon,
+} from '@heroicons/react/24/outline'
 import newlogo500 from '../assets/newlogo500.png'
 
-export default function Navbar() {
-  const [userEmail, setUserEmail] = useState(null)
+const NAV_LINKS = [
+  { name: 'Dashboard',    to: '/dashboard' },
+  { name: 'Upload',       to: '/upload' },
+  { name: 'My Datasets',  to: '/datasets' },
+]
+
+export default function Navbar({ user, setUser }) {
   const navigate = useNavigate()
-
-const Navlogo = logo512
-const NewLogo = newlogo500
-
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user')
-    if (storedUser) {
-      const user = JSON.parse(storedUser)
-      setUserEmail(user.email)
-    }
-  }, [])
 
   const handleLogout = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
-    navigate('/')
+    setUser(null)                // ← clear App’s user state
+    navigate('/login', { replace: true })
   }
 
   return (
-    <nav className="bg-cyan-300 text-white px-4 py-3 flex justify-between items-center shadow-sm">
-      <div className="flex items-center space-x-2">
-        <NavLink to="/dashboard">
-          <img
-            src={NewLogo}
-            alt="dfjsx logo"
-            className="h-16 w-16 object-contain rounded-md"
-          />
-        </NavLink>
-      </div>
-      <div className="flex gap-6 items-center text-sm font-medium">
-        <NavLink to="/upload" className={({ isActive }) => isActive ? "underline" : "hover:underline"}>
-          Upload
-        </NavLink>
-        <NavLink to="/datasets" className={({ isActive }) => isActive ? "underline" : "hover:underline"}>
-          My Datasets
-        </NavLink>
-        {userEmail && <span className="text-blue-700">Welcome, {userEmail}</span>}
-        <button onClick={handleLogout} className="bg-lime-500 hover:bg-indigo-400 px-3 py-1 rounded text-white">
-          Logout
-        </button>
-      </div>
-    </nav>
-  );
+    <Disclosure as="nav" className="bg-cyan-300 shadow">
+      {({ open }) => (
+        <>
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex h-16 justify-between">
+              
+              {/* Logo + Links */}
+              <div className="flex">
+                <NavLink to="/dashboard" className="flex items-center">
+                  <img src={newlogo500} alt="logo" className="h-12 w-12 rounded-md" />
+                </NavLink>
+                <div className="hidden sm:ml-6 sm:flex sm:space-x-4">
+                  {NAV_LINKS.map((link) => (
+                    <NavLink
+                      key={link.name}
+                      to={link.to}
+                      className={({ isActive }) =>
+                        (isActive
+                          ? 'border-b-2 border-indigo-700 text-indigo-900'
+                          : 'text-white hover:text-gray-100') +
+                        ' px-3 py-2 rounded-md text-sm font-medium'
+                      }
+                    >
+                      {link.name}
+                    </NavLink>
+                  ))}
+                </div>
+              </div>
+
+              {/* Auth/UI controls */}
+              <div className="hidden sm:flex sm:items-center sm:space-x-4">
+                {user ? (
+                  <>
+                    <button className="p-1 rounded-full text-indigo-100 hover:text-white">
+                      <BellIcon className="h-6 w-6" />
+                    </button>
+                    <span className="text-sm text-indigo-900">
+                      Welcome, <span className="font-semibold">{user.email}</span>
+                    </span>
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center space-x-1 bg-lime-500 hover:bg-lime-600 px-3 py-1 rounded-md text-sm text-white"
+                    >
+                      <ArrowRightOnRectangleIcon className="h-5 w-5" />
+                      <span>Logout</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <NavLink
+                      to="/login"
+                      className="flex items-center space-x-1 text-white hover:underline text-sm"
+                    >
+                      <ArrowRightOnRectangleIcon className="h-5 w-5" />
+                      <span>Login</span>
+                    </NavLink>
+                    <NavLink
+                      to="/signup"
+                      className="flex items-center space-x-1 bg-indigo-700 hover:bg-indigo-800 px-3 py-1 rounded-md text-sm text-white"
+                    >
+                      <UserPlusIcon className="h-5 w-5" />
+                      <span>Sign Up</span>
+                    </NavLink>
+                  </>
+                )}
+              </div>
+
+              {/* Mobile menu button */}
+              <div className="-mr-2 flex items-center sm:hidden">
+                <Disclosure.Button className="inline-flex items-center justify-center rounded-md p-2 text-white hover:bg-indigo-500">
+                  {open ? (
+                    <XMarkIcon className="h-6 w-6" />
+                  ) : (
+                    <Bars3Icon className="h-6 w-6" />
+                  )}
+                </Disclosure.Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile menu */}
+          <Disclosure.Panel className="sm:hidden bg-cyan-200">
+            <div className="space-y-1 px-2 pt-2 pb-3">
+              {NAV_LINKS.map((link) => (
+                <Disclosure.Button
+                  key={link.name}
+                  as={NavLink}
+                  to={link.to}
+                  className={({ isActive }) =>
+                    (isActive
+                      ? 'bg-indigo-700 text-white'
+                      : 'text-indigo-900 hover:bg-indigo-300') +
+                    ' block px-3 py-2 rounded-md text-base font-medium'
+                  }
+                >
+                  {link.name}
+                </Disclosure.Button>
+              ))}
+
+              <div className="border-t border-indigo-300/50 mt-2 pt-2">
+                {user ? (
+                  <Disclosure.Button
+                    as="button"
+                    onClick={handleLogout}
+                    className="flex w-full items-center space-x-2 px-3 py-2 rounded-md text-indigo-900 hover:bg-indigo-300"
+                  >
+                    <ArrowRightOnRectangleIcon className="h-6 w-6" />
+                    <span>Logout</span>
+                  </Disclosure.Button>
+                ) : (
+                  <>
+                    <Disclosure.Button
+                      as={NavLink}
+                      to="/login"
+                      className="flex w-full items-center space-x-2 px-3 py-2 rounded-md text-indigo-900 hover:bg-indigo-300"
+                    >
+                      <ArrowRightOnRectangleIcon className="h-6 w-6" />
+                      <span>Login</span>
+                    </Disclosure.Button>
+                    <Disclosure.Button
+                      as={NavLink}
+                      to="/signup"
+                      className="flex w-full items-center space-x-2 px-3 py-2 rounded-md bg-indigo-700 text-white hover:bg-indigo-800"
+                    >
+                      <UserPlusIcon className="h-6 w-6" />
+                      <span>Sign Up</span>
+                    </Disclosure.Button>
+                  </>
+                )}
+              </div>
+            </div>
+          </Disclosure.Panel>
+        </>
+      )}
+    </Disclosure>
+  )
 }
+
+

@@ -1,9 +1,16 @@
+// src/App.jsx
 import './App.css';
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate
+} from 'react-router-dom';
 import axios from 'axios';
 
 import SignIn from './components/SignIn';
+import SignUp from './components/SignUp';           // ← import your new signup
 import FileUpload from './components/FileUpload';
 import DataCleaning from './components/DataCleaning';
 import Dashboard from './components/Dashboard';
@@ -13,8 +20,8 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 
 function App() {
-  const [user, setUser] = useState(null);  // holds user data from /users/me
-  const [loading, setLoading] = useState(true);  // waits for token check
+  const [user, setUser] = useState(null);  
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -24,41 +31,61 @@ function App() {
     }
 
     axios.get('/users/me', {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
     })
-    .then((res) => {
-      setUser(res.data);
-    })
-    .catch((err) => {
+    .then(res => setUser(res.data))
+    .catch(err => {
       console.error("Auth error:", err);
       localStorage.removeItem('token');
     })
-    .finally(() => {
-      setLoading(false);
-    });
+    .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div>Loading...</div>;
 
   const ProtectedRoute = ({ element }) =>
-    user ? element : <Navigate to="/" />;
+    user ? element : <Navigate to="/login" replace />;
 
   return (
     <Router>
-    <Navbar />
+      <Navbar user={user} setUser={setUser} />
+
       <Routes>
-        <Route path="/" element={<SignIn setUser={setUser} />} />
-        <Route path="/upload" element={<ProtectedRoute element={<FileUpload user={user} />} />} />
-        <Route path="/datasets/:id/clean" element={<ProtectedRoute element={<DataCleaning />} />} />
-        <Route path="/dashboard" element={<ProtectedRoute element={<Dashboard user={user} />} />} />
-        <Route path="/datasets" element={<ProtectedRoute element={<DatasetsList />} />} />
-        <Route path="/datasets/:id" element={<ProtectedRoute element={<DatasetDetail />} />} />
+        {/* public routes */}
+        <Route path="/"       element={<Navigate to="/login" replace />} />
+        <Route path="/login"  element={<SignIn setUser={setUser} />} />
+        <Route path="/signup" element={<SignUp />} />
+
+        {/* protected */}
+        <Route
+          path="/dashboard"
+          element={<ProtectedRoute element={<Dashboard user={user} />} />}
+        />
+        <Route
+          path="/upload"
+          element={<ProtectedRoute element={<FileUpload user={user} />} />}
+        />
+        <Route
+          path="/datasets"
+          element={<ProtectedRoute element={<DatasetsList />} />}
+        />
+        <Route
+          path="/datasets/:id"
+          element={<ProtectedRoute element={<DatasetDetail />} />}
+        />
+        <Route
+          path="/datasets/:id/clean"
+          element={<ProtectedRoute element={<DataCleaning />} />}
+        />
+
+        {/* catch-all redirects */}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
-      <Footer /> 
+
+      <Footer />
     </Router>
   );
 }
 
 export default App;
+
