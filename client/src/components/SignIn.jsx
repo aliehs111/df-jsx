@@ -1,15 +1,16 @@
 // client/src/components/SignIn.jsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import newlogo500 from '../assets/newlogo500.png'
 
 
-
-  // client/src/components/SignIn.jsx
 export default function SignIn({ setUser }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
+
+  const logo = newlogo500
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -62,8 +63,8 @@ export default function SignIn({ setUser }) {
       <div className="sm:mx-auto sm:w-full sm:max-w-sm">
         <img
           alt="Your Company"
-          src="https://tailwindcss.com/plus-assets/img/logos/mark.svg?color=indigo&shade=500"
-          className="mx-auto h-10 w-auto"
+          src={logo}
+          className="mx-auto h-48 w-auto"
         />
         <h2 className="mt-10 text-center text-2xl font-bold tracking-tight text-white">
           Sign in to your account
@@ -73,7 +74,7 @@ export default function SignIn({ setUser }) {
       <div className="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-blacl">
+            <label htmlFor="email" className="block text-sm font-medium text-blue-800">
               Email address
             </label>
             <div className="mt-2">
@@ -91,7 +92,7 @@ export default function SignIn({ setUser }) {
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-black">
+            <label htmlFor="password" className="block text-sm font-medium text-blue-800">
               Password
             </label>
             <div className="mt-2">
@@ -113,7 +114,7 @@ export default function SignIn({ setUser }) {
           <div>
             <button
               type="submit"
-              className="flex w-full justify-center rounded-md bg-indigo-500 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-400 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-indigo-500"
+              className="flex w-full justify-center rounded-md bg-blue-800 px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-400 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-indigo-500"
             >
               Sign in
             </button>

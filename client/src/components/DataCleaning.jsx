@@ -8,6 +8,7 @@ export default function DataCleaning() {
   const [beforeStats, setBeforeStats] = useState(null);
   const [afterStats, setAfterStats] = useState(null);
   const [options, setOptions] = useState({});
+  const [filename, setFilename]       = useState(""); 
 
   useEffect(() => {
     const token = localStorage.getItem("token");
@@ -20,7 +21,11 @@ export default function DataCleaning() {
         if (!res.ok) throw new Error("Cannot load dataset");
         return res.json();
       })
-      .then((data) => setRawData(data.raw_data))
+      .then((data) => {
+        setRawData(data.raw_data);
+        setFilename(data.filename);
+  })
+
       .catch(console.error);
   }, [id]);
   
@@ -86,7 +91,9 @@ export default function DataCleaning() {
   return (
     <div className="max-w-6xl mx-auto p-6 bg-white shadow rounded">
       <h2 className="text-2xl font-bold mb-4">Quick Cleaning Pipeline</h2>
-
+      <p className="text-gray-700 mb-6">
+      File: <span className="font-medium">{filename}</span>
+    </p>
       <div className="grid gap-4 mb-6">
         <div>
           <label className="block font-medium">Missing Value Strategy</label>

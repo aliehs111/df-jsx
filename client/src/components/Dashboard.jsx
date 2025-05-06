@@ -4,17 +4,23 @@ import QuickStart   from '../components/QuickStart'
 import KPICards     from '../components/KPICards'
 import RecentDatasets from '../components/RecentDatasets'
 import QuickActions from '../components/QuickActions'
+import newlogo500 from '../assets/newlogo500.png'
+
+const logo = newlogo500
 
 export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* <Navbar /> */}
 
-      <header className="bg-cyan-300 py-8 pb-32">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <h1 className="text-4xl font-bold text-white">Dashboard</h1>
-        </div>
-      </header>
+      <header className="bg-cyan-300 py-8 flex items-center justify-between px-8 pb-28">
+  <div>
+    <h1 className="text-4xl font-bold text-white">Dashboard</h1>
+    <p className="text-blue-800 mt-1">Manage your datasets and pipelines</p>
+  </div>
+  <img src={logo} alt="Logo" className="h-32 w-32" />
+</header>
+
 
       <main className="-mt-12 mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8 space-y-6">
         {/* <QuickStart /> */}
@@ -28,14 +34,14 @@ export default function Dashboard() {
         {/* Placeholder for future explainer video */}
         <div className="rounded-lg bg-white p-6 shadow flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold">🎬 App Explainer</h3>
+            <h3 className="text-lg font-semibold">🎬 Explainer Video</h3>
             <p className="mt-1 text-sm text-gray-600">
               A quick 2-minute video is coming soon!
             </p>
           </div>
           <button
             disabled
-            className="flex items-center space-x-2 rounded-md border px-4 py-2 text-sm text-gray-400"
+            className="flex items-center space-x-2 rounded-md border px-4 py-2 text-sm bg-blue-800 text-white"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

@@ -17,15 +17,15 @@ export default function QuickActions() {
         to="/datasets"
         className="flex items-center space-x-2 rounded-md border border-cyan-300 text-blue-800 px-4 py-2 hover:bg-cyan-50"
       >
-        <FolderOpenIcon className="h-6 w-6 text-cyan-600" />
+        <FolderOpenIcon className="h-6 w-6 text-blue-800" />
         <span>My Datasets</span>
       </Link>
       <Link
         to="/chat"
-        className="mt-2 flex items-center space-x-2 rounded-md bg-cyan-600 px-4 py-2 text-white hover:bg-cyan-700"
+        className="mt-2 flex items-center space-x-2 rounded-md bg-blue-800 px-4 py-2 text-white hover:bg-cyan-700"
       >
         <ChatBubbleLeftEllipsisIcon className="h-6 w-6" />
-        <span>Open Chat Tutor</span>
+        <span>Chat with Data Tutor!</span>
       </Link>
     </div>
   )

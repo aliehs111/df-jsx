@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 
 export default function DatasetDetail() {
+  const [insights, setInsights] = useState(null);
   const { id } = useParams();
   const [dataset, setDataset] = useState(null);
   const [heatmapUrl, setHeatmapUrl] = useState(null);
@@ -43,8 +44,22 @@ export default function DatasetDetail() {
     setHeatmapUrl(data.plot);
   };
   
+  const fetchInsights = async () => {
+    const token = localStorage.getItem("token")
+    const res = await fetch(`/datasets/${id}/insights`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) {
+      alert("Could not load insights.")
+      return
+    }
+    const data = await res.json()
+    setInsights(data)
+  }
+  
 
-  if (!dataset) return <div className="p-6">Loading…</div>;
+
+
 
   /* ─────────────────────────────────── RENDER ────────────────────────────── */
   if (!dataset) return <div className="p-4">Loading…</div>;
@@ -84,12 +99,87 @@ export default function DatasetDetail() {
         </table>
       </div>
 
-      <button
-        onClick={fetchHeatmap}
-        className="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500"
-      >
-        View Correlation Heat-map
-      </button>
+      <div className="mt-6 flex flex-wrap justify-center gap-4">
+  <button
+    onClick={fetchHeatmap}
+    className="bg-blue-800 text-white px-4 py-2 rounded hover:bg-lime-400"
+  >
+    View Heatmap
+  </button>
+
+  <button
+    onClick={fetchInsights}
+    className="bg-blue-800 text-white px-4 py-2 rounded hover:bg-lime-400"
+  >
+    View Insights
+  </button>
+
+  <Link
+    to={`/datasets/${id}/clean`}
+    className="bg-blue-800 text-white px-4 py-2 rounded hover:bg-lime-400 flex items-center justify-center"
+  >
+    Go to Quick Pipeline
+  </Link>
+</div>
+
+
+{insights && (
+  <div className="mt-6 space-y-6 bg-gray-50 p-4 rounded-md">
+    <h3 className="text-lg font-semibold text-gray-700">Dataset Summary</h3>
+    <p>
+      <strong>Shape:</strong> {insights.shape[0]}×{insights.shape[1]}
+    </p>
+    <p>
+      <strong>Columns:</strong> {insights.columns.join(", ")}
+    </p>
+
+    <h3 className="font-semibold text-gray-700">Preview Rows</h3>
+    <div className="overflow-auto max-h-64 border rounded">
+      <table className="min-w-full text-xs">
+        <thead className="bg-gray-100 sticky top-0">
+          <tr>
+            {Object.keys(insights.preview[0] || {}).map(col => (
+              <th key={col} className="px-2 py-1 border">{col}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {insights.preview.map((row, i) => (
+            <tr key={i}>
+              {Object.values(row).map((val, j) => (
+                <td key={j} className="px-2 py-1 border">{val}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <h3 className="font-semibold text-gray-700">Data Types</h3>
+    <ul className="list-disc list-inside text-sm">
+      {Object.entries(insights.dtypes).map(([col, dt]) => (
+        <li key={col}>
+          <strong>{col}</strong>: {dt}
+        </li>
+      ))}
+    </ul>
+
+    <h3 className="font-semibold text-gray-700">Missing Values</h3>
+    <ul className="list-disc list-inside text-sm">
+      {Object.entries(insights.null_counts).map(([col, cnt]) => (
+        <li key={col}>
+          <strong>{col}</strong>: {cnt}
+        </li>
+      ))}
+    </ul>
+
+    <h3 className="font-semibold text-gray-700">df.info()</h3>
+    <pre className="overflow-auto max-h-64 bg-gray-100 p-4 rounded text-xs whitespace-pre-wrap">
+      {insights.info_output}
+    </pre>
+  </div>
+)}
+
 
       {heatmapUrl && (
         <img
@@ -99,12 +189,7 @@ export default function DatasetDetail() {
         />
       )}
 
-      <Link
-        to={`/datasets/${id}/clean`}
-        className="inline-block mt-4 text-blue-600 hover:underline font-medium"
-      >
-        Begin Cleaning &amp; Wrangling
-      </Link>
+
     </div>
   );
 }

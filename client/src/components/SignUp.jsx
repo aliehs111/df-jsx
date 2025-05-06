@@ -49,12 +49,12 @@ export default function SignUp() {
           <img
             src={newlogo500}
             alt="Logo"
-            className="mx-auto h-12 w-auto"
+            className="mx-auto h-48 w-auto"
           />
-          <h2 className="mt-6 text-3xl font-bold text-gray-900">
+          <h2 className="mt-6 text-3xl font-bold text-blue-800">
             Create your account
           </h2>
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-blue-800">
             Already have an account?{' '}
             <Link to="/login" className="font-medium text-cyan-600 hover:text-cyan-500">
               Sign in

@@ -1,7 +1,7 @@
 // components/Footer.jsx
 export default function Footer() {
     return (
-      <footer className="bg-cyan-300 border-t py-4 mt-auto">
+      <footer className="bg-cyan-400 border-t py-4 mt-auto">
         <div className="container mx-auto flex justify-center items-center space-x-6">
           <img src="https://www.python.org/static/community_logos/python-logo.png" alt="Python" className="h-6" />
           <img src="https://pandas.pydata.org/static/img/pandas_white.svg" alt="Pandas" className="h-6" />

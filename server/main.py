@@ -184,6 +184,39 @@ async def get_dataset(
     if row is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return row   # FastAPI will convert it to DatasetSchema via orm_mode
+
+@app.get(
+    "/datasets/{dataset_id}/insights",
+    dependencies=[Depends(current_user)],
+)
+async def get_dataset_insights(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_async_db),
+):
+    # fetch the saved raw_data
+    ds = await db.get(DatasetModel, dataset_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    # build a DataFrame
+    df = pd.DataFrame(ds.raw_data)
+
+    # run df.info()
+    buf = io.StringIO()
+    df.info(buf=buf)
+    info_output = buf.getvalue()
+
+    # assemble exactly the same insights shape as /upload-csv
+    return {
+        "preview":       df.head().to_dict(orient="records"),
+        "shape":         list(df.shape),
+        "columns":       df.columns.tolist(),
+        "dtypes":        df.dtypes.astype(str).to_dict(),
+        "null_counts":   df.isnull().sum().to_dict(),
+        "summary_stats": df.describe(include="all").fillna("").to_dict(),
+        "info_output":   info_output,
+    }
+
 from fastapi import status
 
 @app.delete(

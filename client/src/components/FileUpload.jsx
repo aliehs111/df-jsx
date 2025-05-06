@@ -143,7 +143,7 @@ export default function FileUpload() {
 
         <button
           type="submit"
-          className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-500"
+          className="w-full bg-blue-800 text-white py-2 px-4 rounded-md hover:bg-indigo-500"
         >
           Upload and Preview
         </button>

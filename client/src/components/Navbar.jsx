@@ -27,18 +27,18 @@ export default function Navbar({ user, setUser }) {
   }
 
   return (
-    <Disclosure as="nav" className="bg-cyan-300 shadow">
+    <Disclosure as="nav" className="bg-cyan-400 shadow">
       {({ open }) => (
         <>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex h-16 justify-between">
               
               {/* Logo + Links */}
-              <div className="flex">
+              <div className="flex ">
                 <NavLink to="/dashboard" className="flex items-center">
-                  <img src={newlogo500} alt="logo" className="h-12 w-12 rounded-md" />
+                  <img src={newlogo500} alt="logo" className="h-12 w-auto rounded-md" />
                 </NavLink>
-                <div className="hidden sm:ml-6 sm:flex sm:space-x-4">
+                <div className="hidden sm:ml-8 sm:flex sm:space-x-4">
                   {NAV_LINKS.map((link) => (
                     <NavLink
                       key={link.name}
@@ -60,15 +60,13 @@ export default function Navbar({ user, setUser }) {
               <div className="hidden sm:flex sm:items-center sm:space-x-4">
                 {user ? (
                   <>
-                    <button className="p-1 rounded-full text-indigo-100 hover:text-white">
-                      <BellIcon className="h-6 w-6" />
-                    </button>
-                    <span className="text-sm text-indigo-900">
+             
+                    <span className="text-md text-indigo-900">
                       Welcome, <span className="font-semibold">{user.email}</span>
                     </span>
                     <button
                       onClick={handleLogout}
-                      className="flex items-center space-x-1 bg-lime-500 hover:bg-lime-600 px-3 py-1 rounded-md text-sm text-white"
+                      className="flex items-center space-x-1 bg-blue-800 hover:bg-lime-400 px-3 py-1 rounded-md text-sm text-white"
                     >
                       <ArrowRightOnRectangleIcon className="h-5 w-5" />
                       <span>Logout</span>
@@ -85,7 +83,7 @@ export default function Navbar({ user, setUser }) {
                     </NavLink>
                     <NavLink
                       to="/signup"
-                      className="flex items-center space-x-1 bg-indigo-700 hover:bg-indigo-800 px-3 py-1 rounded-md text-sm text-white"
+                      className="flex items-center space-x-1 bg-blue-800 hover:bg-green-800 px-3 py-1 rounded-md text-sm text-white"
                     >
                       <UserPlusIcon className="h-5 w-5" />
                       <span>Sign Up</span>
