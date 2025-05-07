@@ -10,7 +10,7 @@ export default function FileUpload() {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [s3Key, setS3Key] = useState(null);
-
+  const [records, setRecords] = useState(null);
   /* ------------- helpers ----------------- */
   const handleFileChange = (e) => {
     setFile(e.target.files?.[0] ?? null);
@@ -51,6 +51,7 @@ export default function FileUpload() {
       console.log("Data returned from backend:", data);
       setInsights(data);
       setPreview(data.preview);
+      setRecords(data.records);
       setS3Key(data.s3_key);
       setError(null);
     } catch (err) {
@@ -75,7 +76,7 @@ export default function FileUpload() {
         title,
         description,
         filename: file.name,
-        raw_data: preview,
+        raw_data: records,
         s3_key: s3Key,
       };
       console.log("Save payload:", payload);

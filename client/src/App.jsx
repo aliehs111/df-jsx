@@ -20,6 +20,7 @@ import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import Splash from "./components/Splash";
 import Resources from "./components/Resources";
+import ProcessDataset from "./components/ProcessDataset";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -105,11 +106,21 @@ function App() {
           path="/resources"
           element={<ProtectedRoute element={<Resources />} />}
         />
+        <Route
+          path="/datasets/:id/process"
+          element={<ProtectedRoute element={<ProcessDataset />} />}
+        />
 
-        {/* catch-all: if logged in → dashboard, otherwise show splash */}
+        {/* catch-all: if logged in → dashboard, otherwise go home (Splash) */}
         <Route
           path="*"
-          element={user ? <Navigate to="/dashboard" replace /> : <Splash />}
+          element={
+            user ? (
+              <Navigate to="/dashboard" replace />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
         />
       </Routes>
 
