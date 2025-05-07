@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { name: 'Dashboard',    to: '/dashboard' },
   { name: 'Upload',       to: '/upload' },
   { name: 'My Datasets',  to: '/datasets' },
+  { name: 'Resources',    to: '/resources'},
 ]
 
 export default function Navbar({ user, setUser }) {
@@ -23,7 +24,7 @@ export default function Navbar({ user, setUser }) {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     setUser(null)                // ← clear App’s user state
-    navigate('/login', { replace: true })
+    navigate('/', { replace: true })
   }
 
   return (

@@ -19,6 +19,7 @@ import DatasetDetail from "./components/DatasetDetail";
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import Splash from "./components/Splash";
+import Resources from "./components/Resources";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -99,6 +100,10 @@ function App() {
         <Route
           path="/datasets/:id/clean"
           element={<ProtectedRoute element={<DataCleaning />} />}
+        />
+        <Route
+          path="/resources"
+          element={<ProtectedRoute element={<Resources />} />}
         />
 
         {/* catch-all: if logged in → dashboard, otherwise show splash */}
