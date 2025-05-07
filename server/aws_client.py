@@ -36,7 +36,9 @@ def upload_bytes(data: bytes, filename: str) -> str:
         response = s3.put_object(Bucket=S3_BUCKET, Key=key, Body=data)
         logger.debug(f"S3 response: {response}")
         # Verify the upload
-        s3.head_object(Bucket=S3_BUCKET, Key=key)
+        s3.head_object(
+            Bucket=S3_BUCKET, 
+            Key=key)
         logger.debug(f"File verified in S3: {key}")
         return key
     except ClientError as e:

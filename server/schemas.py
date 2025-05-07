@@ -29,3 +29,19 @@ class Dataset(BaseModel):
 
     class Config:
         orm_mode = True  # Pydantic v1 syntax
+
+# ── New models for the combined clean+preprocess endpoint ──
+
+class CleanOps(BaseModel):
+    dropna: Optional[bool] = False
+    fillna: Optional[Dict[str, Any]] = {}
+    lowercase_headers: Optional[bool] = False
+    remove_duplicates: Optional[bool] = False
+
+class PreprocessOps(BaseModel):
+    scale: Optional[str]    = None   # "normalize" or "standardize"
+    encoding: Optional[str] = None   # "onehot" or "label"
+
+class ProcessRequest(BaseModel):
+    clean: CleanOps
+    preprocess: PreprocessOps        

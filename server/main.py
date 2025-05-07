@@ -5,6 +5,7 @@
 #    • Local     → always prefix with  “server.”  so they resolve everywhere
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 # ---------- Standard library ----------
 import sys
 import os
@@ -20,15 +21,18 @@ from dotenv import load_dotenv
 load_dotenv()                          # load .env first
 
 import pandas as pd
+import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
-
+from fastapi.encoders import jsonable_encoder
 from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
+from botocore.exceptions import ClientError
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,10 +48,22 @@ import server.schemas      as schemas
 import server.schemas as schemas
 from server.auth.userroutes import router as user_router, fastapi_users
 from server.auth.userbase import User
-
+from server.auth.userroutes import current_user
+from server.schemas       import ProcessRequest
 # ─────────────────────────────────────────────────────────────────────────────
 #  END IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
+def _to_py(obj):
+    # """
+    # Recursively convert numpy scalars to native Python types.
+    # """
+    if isinstance(obj, dict):
+        return { _to_py(k): _to_py(v) for k, v in obj.items() }
+    if isinstance(obj, list):
+        return [ _to_py(v) for v in obj ]
+    if isinstance(obj, np.generic):
+        return obj.item()
+    return obj
 
 current_user = fastapi_users.current_user()
 s3 = get_s3()
@@ -112,8 +128,15 @@ async def upload_csv(file: UploadFile = File(...)):
     df.info(buf=buf)
     info_output = buf.getvalue()
 
+    # build a “safe” summary_stats
+    summary = df.describe(include="all")
+    # replace infinities with NaN, then turn all NaNs into empty string (or null)
+    summary = summary.replace([np.inf, -np.inf], np.nan).fillna("")
+    summary_dict = summary.astype(str).to_dict()   # cast every cell to string
+
     insights = {
         "preview"       : df.head().to_dict(orient="records"),
+        "records"       : df.to_dict(orient="records"), 
         "shape"         : list(df.shape),
         "columns"       : df.columns.tolist(),
         "dtypes"        : df.dtypes.astype(str).to_dict(),
@@ -122,7 +145,9 @@ async def upload_csv(file: UploadFile = File(...)):
         "info_output"   : info_output,
         "s3_key"        : s3_key,                    # <-- NEW
     }
-    return insights
+    
+      # ensure all numpy types are finally plain Python
+    return jsonable_encoder(insights)
 
 
 class DatasetCreate(BaseModel):
@@ -159,16 +184,37 @@ async def save_dataset(
 
 @app.get(
     "/datasets",
-    response_model=list[schemas.DatasetSummary],
+    response_model=List[schemas.DatasetSummary],
     dependencies=[Depends(current_user)],
 )
 async def list_datasets(db: AsyncSession = Depends(get_async_db)):
-    result = await db.execute(
-        select(DatasetModel).order_by(DatasetModel.uploaded_at.desc())
+    # only pull the lightweight fields, not the full JSON columns
+    stmt = (
+        select(
+            DatasetModel.id,
+            DatasetModel.title,
+            DatasetModel.description,
+            DatasetModel.filename,
+            DatasetModel.s3_key,
+            DatasetModel.uploaded_at,
+        )
+        .order_by(DatasetModel.uploaded_at.desc())
     )
-    rows = result.scalars().all()
-    return [schemas.DatasetSummary.from_orm(row) for row in rows]
+    result = await db.execute(stmt)
+    rows = result.all()  # a list of Row(id=…, title=…, …)
 
+    # manually build your Pydantic summaries
+    return [
+        schemas.DatasetSummary(
+            id=row.id,
+            title=row.title,
+            description=row.description,
+            filename=row.filename,
+            s3_key=row.s3_key,
+            uploaded_at=row.uploaded_at,
+        )
+        for row in rows
+    ]
 
 @app.get(
     "/datasets/{dataset_id}",
@@ -293,7 +339,121 @@ def get_db():
     finally:
         db.close()
                               
+@app.post(
+    "/datasets/{dataset_id}/process",
+    dependencies=[Depends(current_user)],
+)
+async def process_dataset(
+    dataset_id: int,
+    payload: ProcessRequest,
+    db: AsyncSession = Depends(get_async_db),
+):
+    # 1) load dataset
+    ds = await db.get(DatasetModel, dataset_id)
+    if not ds:
+        raise HTTPException(404, "Dataset not found")
 
+    df = pd.DataFrame(ds.raw_data)
+
+    # ─── Cleaning ───────────────────────────────────────────────────
+    ops = payload.clean
+    if ops.dropna:
+        df = df.dropna()
+    for col, val in ops.fillna.items():
+        df[col] = df[col].fillna(val)
+    if ops.lowercase_headers:
+        df.columns = [c.lower() for c in df.columns]
+    if ops.remove_duplicates:
+        df = df.drop_duplicates()
+
+    renames = (
+        {old: new for old, new in zip(ds.raw_data[0].keys(), df.columns)}
+        if ops.lowercase_headers else {}
+    )
+
+    # ─── Preprocessing ──────────────────────────────────────────────
+    norm_params = {}
+    if payload.preprocess.scale in {"normalize", "standardize"}:
+        for c in df.select_dtypes("number"):
+            if payload.preprocess.scale == "normalize":
+                mn, mx = df[c].min(), df[c].max()
+                norm_params[c] = {"min": mn, "max": mx}
+                if mx != mn:
+                    df[c] = (df[c] - mn) / (mx - mn)
+            else:  # standardize
+                mean, std = df[c].mean(), df[c].std()
+                norm_params[c] = {"mean": mean, "std": std}
+                if std:
+                    df[c] = (df[c] - mean) / std
+
+    cat_maps = {}
+    if payload.preprocess.encoding == "label":
+        from sklearn.preprocessing import LabelEncoder
+        for c in df.select_dtypes("object"):
+            le = LabelEncoder().fit(df[c].fillna(""))
+            cat_maps[c] = dict(zip(le.classes_, le.transform(le.classes_)))
+            df[c] = le.transform(df[c].fillna(""))
+    elif payload.preprocess.encoding == "onehot":
+        for c in df.select_dtypes("object"):
+            cols = df[c].fillna("").unique().tolist()
+            cat_maps[c] = cols
+        df = pd.get_dummies(df, columns=list(cat_maps.keys()), dummy_na=False)
+
+    # ─── Persist in DB and S3 ───────────────────────────────────────
+    # Convert every nested  into plain Python
+    cleaned_records = _to_py(df.to_dict(orient="records"))
+    norm_py         = _to_py(norm_params)
+    cat_py          = _to_py(cat_maps)
+
+    # quick debug to verify types
+    print("DEBUG types:", 
+          "cleaned_records[0] types:", {k:type(v) for k,v in cleaned_records[0].items()},
+          "norm_py types:", {k:type(v["min"]) for k,v in norm_py.items()} if norm_py else {},
+          "cat_py types:", {k:type(v) for k,v in cat_py.items()} )
+
+    ds.column_renames        = renames
+    ds.cleaned_data          = cleaned_records
+    ds.normalization_params  = norm_py
+    ds.categorical_mappings  = cat_py
+
+    buf = io.StringIO()
+    df.to_csv(buf, index=False)
+    key = upload_bytes(buf.getvalue().encode("utf-8"), f"final_{ds.filename}")
+    ds.s3_key = key
+
+    await db.commit()
+    await db.refresh(ds)
+
+    return {
+        "s3_key": key,
+        "column_renames": renames,
+        "normalization_params": norm_py,
+        "categorical_mappings": cat_py,
+    }
+
+@app.get(
+    "/datasets/{dataset_id}/download",
+    dependencies=[Depends(current_user)],
+)
+async def download_dataset(
+    dataset_id: int,
+    db: AsyncSession = Depends(get_async_db),
+):
+    ds = await db.get(DatasetModel, dataset_id)
+    if not ds or not ds.s3_key:
+        raise HTTPException(status_code=404, detail="Dataset or file not found")
+
+    try:
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": S3_BUCKET, "Key": ds.s3_key},
+            ExpiresIn=3600,  # link valid for 1 hour
+        )
+    except ClientError as e:
+        logger.error(f"Presigned URL generation failed: {e}")
+        raise HTTPException(status_code=500, detail="Could not generate download link")
+
+    return {"url": url}
 
 
 @app.get(
@@ -447,6 +607,12 @@ def get_plot():
     buf.seek(0)
     img_b64 = base64.b64encode(buf.read()).decode()
     return {"plot": f"data:image/png;base64,{img_b64}"}
+
+
+
+
+
+
 
 # Only mount the React build when running on Heroku (DYNO env var present)
 if "DYNO" in os.environ:
