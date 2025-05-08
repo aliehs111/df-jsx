@@ -90,7 +90,7 @@ export default function DataCleaning() {
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-white shadow rounded">
-      <h2 className="text-2xl font-bold mb-4">Quick Cleaning Pipeline</h2>
+      <h2 className="text-2xl font-bold mb-4 text blue-800">Pipeline Sandbox</h2>
       <p className="text-gray-700 mb-6">
       File: <span className="font-medium">{filename}</span>
     </p>

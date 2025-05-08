@@ -106,7 +106,7 @@ export default function FileUpload() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow p-6 max-w-2xl mx-auto">
+    <div className="bg-cyan-50 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <h2 className="text-xl font-semibold mb-4">Upload CSV File</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

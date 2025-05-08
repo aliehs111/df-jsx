@@ -8,11 +8,11 @@ export default function Splash() {
       <img
         src={newlogo500}
         alt="App Logo"
-        className="h-48 w-48 mb-4"
+        className="h-48 w-48 mb-4 rounded-md"
       />
       <h1 className="text-4xl font-blue-800 font-bold text-cyan-800">Welcome to df.jsx!</h1>
       <p className="mt-2 text-md text-cyan-700">
-        Your friendly CSV cleaning and preprocessing assistant
+      Master Data Prep with Your Personal Chatbot Data Coach
       </p>
 
       <div className="mt-8 flex space-x-4">

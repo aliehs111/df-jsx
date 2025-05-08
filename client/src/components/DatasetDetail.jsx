@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-
+import newlogo500 from "../assets/newlogo500.png";
+import { ChatBubbleLeftEllipsisIcon } from '@heroicons/react/24/outline'
 export default function DatasetDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -110,12 +111,39 @@ export default function DatasetDetail() {
         >
           View Insights
         </button>
+        <Link
+          to={`/datasets/${id}/clean`}
+          className="bg-blue-800 text-white px-4 py-2 rounded hover:bg-lime-400"
+        >
+          Pipeline Sandbox
+        </Link>
 
         <Link
           to={`/datasets/${id}/process`}
           className="bg-blue-800 text-white px-4 py-2 rounded hover:bg-indigo-500"
         >
-          Clean &amp; Preprocess
+          Preprocess
+        </Link>
+        <Link
+          to="/chat"
+          className="
+            inline-flex items-center 
+            space-x-1   /* tighten spacing */
+            bg-lime-500 hover:bg-cyan-700 
+            text-white 
+            text-xs      /* smaller text */
+            px-2 py-1    /* less padding */
+            rounded
+          "
+        >
+          <ChatBubbleLeftEllipsisIcon className="h-4 w-4" /> 
+          <span>Chat with Databot!</span>
+          {/* logo on right */}
+          <img
+            src={newlogo500}
+            alt="Data Tutor"
+            className="h-4 w-4"
+          />
         </Link>
       </div>
 

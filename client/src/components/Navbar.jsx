@@ -13,7 +13,7 @@ import newlogo500 from '../assets/newlogo500.png'
 const NAV_LINKS = [
   { name: 'Dashboard',    to: '/dashboard' },
   { name: 'Upload',       to: '/upload' },
-  { name: 'My Datasets',  to: '/datasets' },
+  { name: 'Datasets',  to: '/datasets' },
   { name: 'Resources',    to: '/resources'},
 
 ]
@@ -126,12 +126,12 @@ export default function Navbar({ user, setUser }) {
                 </Disclosure.Button>
               ))}
 
-              <div className="border-t border-indigo-300/50 mt-2 pt-2">
+              <div className="bg-lime-400 border-t border-indigo-300/50 mt-2 pt-2">
                 {user ? (
                   <Disclosure.Button
                     as="button"
                     onClick={handleLogout}
-                    className="flex w-full items-center space-x-2 px-3 py-2 rounded-md text-indigo-900 hover:bg-indigo-300"
+                    className="flex w-full items-center space-x-2 px-3 py-2 rounded-md bg-lime-400 text-indigo-900 hover:bg-indigo-300"
                   >
                     <ArrowRightOnRectangleIcon className="h-6 w-6" />
                     <span>Logout</span>
@@ -141,7 +141,7 @@ export default function Navbar({ user, setUser }) {
                     <Disclosure.Button
                       as={NavLink}
                       to="/login"
-                      className="flex w-full items-center space-x-2 px-3 py-2 rounded-md text-indigo-900 hover:bg-indigo-300"
+                      className="flex w-full items-center space-x-2 px-3 py-2 rounded-md bg-lime-400 text-indigo-900 hover:bg-indigo-300"
                     >
                       <ArrowRightOnRectangleIcon className="h-6 w-6" />
                       <span>Login</span>

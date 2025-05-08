@@ -3,6 +3,8 @@ import { useEffect, useState } from "react";
 import { CalendarIcon, EyeIcon, TrashIcon } from "@heroicons/react/20/solid";
 import { Link, useNavigate } from "react-router-dom";
 import newlogo500 from "../assets/newlogo500.png";
+import { ChatBubbleLeftEllipsisIcon } from '@heroicons/react/24/outline'
+
 export default function DatasetsList() {
   const [datasets, setDatasets] = useState([]);
   const [error, setError] = useState(null);
@@ -78,8 +80,43 @@ export default function DatasetsList() {
     return <div className="text-center py-8">No datasets found.</div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h2 className="text-2xl font-bold mb-6 text-gray-800">My Datasets</h2>
+    <div className="bg-cyan-50 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <h2 className="text-2xl font-bold mb-2 text-blue-800"> Saved Datasets</h2>
+      <p className="text-blue-800 mt-1 mb-4 text-sm">
+  Choose a dataset to begin analyzing and processing!  
+  File names with&nbsp;
+  <img
+    src={newlogo500}
+    alt="Processed dataset"
+    className="inline-block h-4 w-4 align-text-bottom mx-1"
+  />
+  have associated processed files saved.  If you process and save them again, them they will be overwritten. 
+</p>
+
+<div className="flex justify-end mb-4">
+        <Link
+          to="/chat"
+          className="
+            inline-flex items-center 
+            space-x-1   /* tighten spacing */
+            bg-lime-500 hover:bg-cyan-700 
+            text-white 
+            text-xs      /* smaller text */
+            px-2 py-1    /* less padding */
+            rounded
+          "
+        >
+          <ChatBubbleLeftEllipsisIcon className="h-4 w-4" /> 
+          <span>Chat with Databot!</span>
+          {/* logo on right */}
+          <img
+            src={newlogo500}
+            alt="Data Tutor"
+            className="h-4 w-4"
+          />
+        </Link>
+      </div>
+    
       <ul
         role="list"
         className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"

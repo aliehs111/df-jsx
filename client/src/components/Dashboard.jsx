@@ -1,28 +1,27 @@
 // src/pages/Dashboard.jsx
-import Navbar from '../components/Navbar'
-import QuickStart   from '../components/QuickStart'
-import KPICards     from '../components/KPICards'
-import RecentDatasets from '../components/RecentDatasets'
-import QuickActions from '../components/QuickActions'
-import newlogo500 from '../assets/newlogo500.png'
+import Navbar from "../components/Navbar";
+import QuickStart from "../components/QuickStart";
+import KPICards from "../components/KPICards";
+import RecentDatasets from "../components/RecentDatasets";
+import QuickActions from "../components/QuickActions";
+import newlogo500 from "../assets/newlogo500.png";
 
-const logo = newlogo500
+const logo = newlogo500;
 
 export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* <Navbar /> */}
 
-      <header className="bg-cyan-300 py-8 flex items-center justify-between px-8 pb-28">
-  <div>
-    <h1 className="text-4xl font-bold text-white">Dashboard</h1>
-    <p className="text-blue-800 mt-1">Manage your datasets and pipelines</p>
-  </div>
-  <img src={logo} alt="Logo" className="h-32 w-32" />
-</header>
+      <header className="bg-cyan-200 py-8 flex items-center justify-between px-20 pb-20">
+        <div>
+          <h1 className="text-6xl font-bold text-white ">Dashboard</h1>
+          {/* <p className="text-blue-800 mt-1">Manage your datasets and pipelines</p> */}
+        </div>
+        <img src={logo} alt="Logo" className="h-48 w-48 rounded-md" />
+      </header>
 
-
-      <main className="-mt-12 mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8 space-y-6">
+      <main className="-mt-12 mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8 space-y-6 bg-cyan-50">
         {/* <QuickStart /> */}
         <KPICards />
 
@@ -46,16 +45,21 @@ export default function Dashboard() {
             <svg
               xmlns="http://www.w3.org/2000/svg"
               className="h-5 w-5"
-              fill="none" viewBox="0 0 24 24"
+              fill="none"
+              viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-4.36-2.507A1 1 0 009 9.6v4.8a1 1 0 001.392.92l4.36-2.507a1 1 0 000-1.732z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M14.752 11.168l-4.36-2.507A1 1 0 009 9.6v4.8a1 1 0 001.392.92l4.36-2.507a1 1 0 000-1.732z"
+              />
             </svg>
             <span>Play</span>
           </button>
         </div>
       </main>
     </div>
-  )
+  );
 }
-
