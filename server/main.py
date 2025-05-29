@@ -50,6 +50,8 @@ from server.auth.userroutes import router as user_router, fastapi_users
 from server.auth.userbase import User
 from server.auth.userroutes import current_user
 from server.schemas       import ProcessRequest
+from server.routers import insights
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  END IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -93,7 +95,7 @@ app.add_middleware(
 )
 
 app.include_router(user_router)
-
+app.include_router(insights.router)
 
 class CleanRequest(BaseModel):
     data: List[Dict[str, Any]]
