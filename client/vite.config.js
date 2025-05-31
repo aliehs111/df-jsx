@@ -21,25 +21,29 @@ export default defineConfig({
         changeOrigin: true,
       },
 
-      // CSV upload endpoint
+      // model runner API
+      '/models': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+
+      // CSV upload
       '/upload-csv': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
 
-      // if DataCleaning.jsx calls something like `/clean`:
+      // cleaning
       '/clean': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
 
-      // if CorrelationHeatmap.jsx calls `/correlation`:
+      // correlation heatmap
       '/correlation': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-
-      // add any other API prefixes your new components use…
     },
   },
 })

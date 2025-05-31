@@ -51,7 +51,7 @@ from server.auth.userbase import User
 from server.auth.userroutes import current_user
 from server.schemas       import ProcessRequest
 from server.routers import insights
-
+from server.routers import modelrunner
 # ─────────────────────────────────────────────────────────────────────────────
 #  END IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -96,6 +96,7 @@ app.add_middleware(
 
 app.include_router(user_router)
 app.include_router(insights.router)
+app.include_router(modelrunner.router)
 
 class CleanRequest(BaseModel):
     data: List[Dict[str, Any]]

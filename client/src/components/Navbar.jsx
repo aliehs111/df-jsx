@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { name: 'Upload',       to: '/upload' },
   { name: 'Datasets',  to: '/datasets' },
   { name: 'Resources',    to: '/resources'},
+  { name: 'Models', to:'/models'}
 
 ]
 

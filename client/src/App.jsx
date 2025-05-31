@@ -21,7 +21,8 @@ import Footer from "./components/Footer";
 import Splash from "./components/Splash";
 import Resources from "./components/Resources";
 import ProcessDataset from "./components/ProcessDataset";
-import DataInsights from "./components/DataInsignts";
+import DataInsights from "./components/DataInsights";
+import Models from "./components/Models";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -61,7 +62,6 @@ function App() {
           path="/"
           element={user ? <Navigate to="/dashboard" replace /> : <Splash />}
         />
-       <Route path="/test-insights" element={<DataInsights />} />
 
         <Route
           path="/login"
@@ -94,6 +94,11 @@ function App() {
           element={<ProtectedRoute element={<FileUpload user={user} />} />}
         />
         <Route
+          path="/datasets/:id/insights"
+          element={<ProtectedRoute element={<DataInsights />} />}
+        />
+
+        <Route
           path="/datasets"
           element={<ProtectedRoute element={<DatasetsList />} />}
         />
@@ -113,7 +118,10 @@ function App() {
           path="/datasets/:id/process"
           element={<ProtectedRoute element={<ProcessDataset />} />}
         />
-        
+        <Route
+          path="/models"
+          element={<ProtectedRoute element={<Models />} />}
+        />
 
         {/* catch-all: if logged in → dashboard, otherwise go home (Splash) */}
         <Route
