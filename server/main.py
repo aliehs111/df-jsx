@@ -52,20 +52,13 @@ from server.auth.userroutes import current_user
 from server.schemas       import ProcessRequest
 from server.routers import insights
 from server.routers import modelrunner
+from server.utils.encoders import _to_py
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  END IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
-def _to_py(obj):
-    # """
-    # Recursively convert numpy scalars to native Python types.
-    # """
-    if isinstance(obj, dict):
-        return { _to_py(k): _to_py(v) for k, v in obj.items() }
-    if isinstance(obj, list):
-        return [ _to_py(v) for v in obj ]
-    if isinstance(obj, np.generic):
-        return obj.item()
-    return obj
+
 
 current_user = fastapi_users.current_user()
 s3 = get_s3()
