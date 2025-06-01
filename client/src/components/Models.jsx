@@ -22,20 +22,33 @@ export default function Models() {
       .catch((err) => console.error("Failed to fetch datasets", err));
   }, []);
 
+  // useEffect(() => {
+  //   setResult(null); // Clear previous result
+  // }, [selectedDataset, selectedModel]);
+
   const handleRunModel = async () => {
     if (!selectedDataset || !selectedModel) return;
     setIsLoading(true);
+    const token = localStorage.getItem("token");
 
     try {
-      const response = await axios.post("http://localhost:8000/models/run", {
-        dataset_id: selectedDataset, // ⬅️ use directly
-        model_name: selectedModel,
-        n_clusters: nClusters,
-      });
-
+      const response = await axios.post(
+        "/models/run",
+        {
+          dataset_id: selectedDataset,
+          model_name: selectedModel,
+          n_clusters: nClusters,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
       setResult(response.data);
     } catch (error) {
-      console.error("Model run failed", error);
+      console.error("Model run failed", error.response?.data || error.message);
       setResult({ error: "Model run failed. Check backend logs." });
     } finally {
       setIsLoading(false);
@@ -56,7 +69,7 @@ export default function Models() {
                 className={`cursor-pointer p-2 rounded border hover:bg-blue-50 ${
                   selectedDataset === ds.id ? "bg-blue-100" : ""
                 }`}
-                onClick={() => setSelectedDataset(ds.id)}
+                onClick={() => setSelectedDataset(Number(ds.id))}
               >
                 {ds.title}
               </li>
