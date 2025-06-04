@@ -1,9 +1,8 @@
-// src/components/DatasetsList.jsx
 import { useEffect, useState } from "react";
 import { CalendarIcon, EyeIcon, TrashIcon } from "@heroicons/react/20/solid";
 import { Link, useNavigate } from "react-router-dom";
 import newlogo500 from "../assets/newlogo500.png";
-import { ChatBubbleLeftEllipsisIcon } from '@heroicons/react/24/outline'
+import { ChatBubbleLeftEllipsisIcon } from "@heroicons/react/24/outline";
 
 export default function DatasetsList() {
   const [datasets, setDatasets] = useState([]);
@@ -11,23 +10,26 @@ export default function DatasetsList() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
+  // Small delay to ensure token is available after refresh
   useEffect(() => {
-    const fetchDatasets = async () => {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        setError("Please log in to view datasets");
-        setLoading(false);
-        return;
-      }
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setError("Please log in to view datasets");
+      setLoading(false);
+      return;
+    }
 
+    const fetchDatasets = async () => {
       try {
         const res = await fetch("/datasets", {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         });
 
         if (res.status === 401) {
           setError("Session expired. Please log in again.");
-          setLoading(false);
+          navigate("/login");
           return;
         }
 
@@ -38,20 +40,25 @@ export default function DatasetsList() {
         const data = await res.json();
         setDatasets(data);
       } catch (err) {
-        setError(err.message);
+        setError(err.message || "Unknown error");
       } finally {
         setLoading(false);
       }
     };
 
     fetchDatasets();
-  }, []);
+  }, [navigate]);
 
   const handleDelete = async (id) => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setError("Not authorized.");
+      return;
+    }
+
     if (!window.confirm("Are you sure you want to delete this dataset?"))
       return;
 
-    const token = localStorage.getItem("token");
     try {
       const res = await fetch(`/datasets/${id}`, {
         method: "DELETE",
@@ -59,13 +66,13 @@ export default function DatasetsList() {
       });
 
       if (res.status === 204) {
-        setDatasets((ds) => ds.filter((d) => d.id !== id));
+        setDatasets((prev) => prev.filter((d) => d.id !== id));
       } else if (res.status === 401) {
         setError("Not authorized. Please log in again.");
         navigate("/login");
       } else {
-        const text = await res.text();
-        throw new Error(text || "Failed to delete dataset");
+        const msg = await res.text();
+        throw new Error(msg || "Failed to delete dataset");
       }
     } catch (err) {
       setError(err.message);
@@ -81,49 +88,32 @@ export default function DatasetsList() {
 
   return (
     <div className="bg-cyan-50 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h2 className="text-2xl font-bold mb-2 text-blue-800"> Saved Datasets</h2>
+      <h2 className="text-2xl font-bold mb-2 text-blue-800">Saved Datasets</h2>
       <p className="text-blue-800 mt-1 mb-4 text-sm">
-  Choose a dataset to begin analyzing and processing!  
-  File names with&nbsp;
-  <img
-    src={newlogo500}
-    alt="Processed dataset"
-    className="inline-block h-4 w-4 align-text-bottom mx-1"
-  />
-  have associated processed files saved.  If you process and save them again, them they will be overwritten. 
-</p>
+        Choose a dataset to begin analyzing and processing! File names with
+        <img
+          src={newlogo500}
+          alt="Processed dataset"
+          className="inline-block h-4 w-4 align-text-bottom mx-1"
+        />
+        have associated processed files saved. If you process and save them
+        again, they will be overwritten.
+      </p>
 
-<div className="flex justify-end mb-4">
+      <div className="flex justify-end mb-4">
         <Link
           to="/chat"
-          className="
-            inline-flex items-center 
-            space-x-1   /* tighten spacing */
-            bg-lime-500 hover:bg-cyan-700 
-            text-white 
-            text-xs      /* smaller text */
-            px-2 py-1    /* less padding */
-            rounded
-          "
+          className="inline-flex items-center space-x-1 bg-lime-500 hover:bg-cyan-700 text-white text-xs px-2 py-1 rounded"
         >
-          <ChatBubbleLeftEllipsisIcon className="h-4 w-4" /> 
+          <ChatBubbleLeftEllipsisIcon className="h-4 w-4" />
           <span>Chat with Databot!</span>
-          {/* logo on right */}
-          <img
-            src={newlogo500}
-            alt="Data Tutor"
-            className="h-4 w-4"
-          />
+          <img src={newlogo500} alt="Data Tutor" className="h-4 w-4" />
         </Link>
       </div>
-    
-      <ul
-        role="list"
-        className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-      >
+
+      <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {datasets.map((dataset) => {
           const processed = dataset.s3_key?.includes("final_");
-
           return (
             <li
               key={dataset.id}
@@ -142,7 +132,6 @@ export default function DatasetsList() {
                     )}
                   </h3>
                   <p className="mt-1 text-sm text-gray-600 truncate">
-                    {" "}
                     {dataset.description}
                   </p>
                 </div>
@@ -155,7 +144,6 @@ export default function DatasetsList() {
               </div>
 
               <div className="-mt-px flex divide-x divide-gray-200">
-                {/* View */}
                 <div className="flex w-0 flex-1">
                   <Link
                     to={`/datasets/${dataset.id}`}
@@ -165,8 +153,6 @@ export default function DatasetsList() {
                     View
                   </Link>
                 </div>
-
-                {/* Delete */}
                 <div className="-ml-px flex w-0 flex-1">
                   <button
                     onClick={() => handleDelete(dataset.id)}

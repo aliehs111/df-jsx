@@ -9,7 +9,11 @@
 # ---------- Standard library ----------
 import sys
 import os
-print("📢 Connecting to database at:", os.getenv("DATABASE_URL") or os.getenv("JAWSDB_URL"))
+
+print(
+    "📢 Connecting to database at:",
+    os.getenv("DATABASE_URL") or os.getenv("JAWSDB_URL"),
+)
 from pathlib import Path
 import io
 import base64
@@ -18,11 +22,13 @@ from typing import List, Dict, Any
 
 # ---------- Third-party ----------
 from dotenv import load_dotenv
-load_dotenv()                          # load .env first
+
+load_dotenv()  # load .env first
 
 import pandas as pd
 import numpy as np
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -31,7 +37,8 @@ from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse
+from fastapi.requests import Request
 from botocore.exceptions import ClientError
 
 from sqlalchemy import select
@@ -42,14 +49,14 @@ from pydantic import BaseModel
 # ---------- Local / project ----------
 from server.aws_client import get_s3, upload_bytes, S3_BUCKET
 from server.database import get_async_db, engine, AsyncSessionLocal
-from server.models import Dataset       as DatasetModel
+from server.models import Dataset as DatasetModel
 from server.models import Base
-import server.schemas      as schemas
+import server.schemas as schemas
 import server.schemas as schemas
 from server.auth.userroutes import router as user_router, fastapi_users
 from server.auth.userbase import User
 from server.auth.userroutes import current_user
-from server.schemas       import ProcessRequest
+from server.schemas import ProcessRequest
 from server.routers import insights
 from server.routers import modelrunner
 from server.utils.encoders import _to_py
@@ -63,10 +70,12 @@ from server.utils.encoders import _to_py
 current_user = fastapi_users.current_user()
 s3 = get_s3()
 
+
 # --- Unique ID generator (define BEFORE FastAPI instance)
 def custom_generate_unique_id(route: APIRoute):
     tag = route.tags[0] if route.tags else "default"
     return f"{tag}_{route.name}"
+
 
 # --- Create FastAPI app with custom ID function
 app = FastAPI(generate_unique_id_function=custom_generate_unique_id)
@@ -81,7 +90,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,9 +100,11 @@ app.include_router(user_router)
 app.include_router(insights.router)
 app.include_router(modelrunner.router)
 
+
 class CleanRequest(BaseModel):
     data: List[Dict[str, Any]]
     operations: Dict[str, Any]
+
 
 @app.get("/health")
 def read_root():
@@ -103,6 +114,7 @@ def read_root():
 async def init_models():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
 
 @app.on_event("startup")
 async def on_startup():
@@ -115,7 +127,7 @@ async def upload_csv(file: UploadFile = File(...)):
     contents = await file.read()
 
     # 2️⃣ push to S3  (helper imported from aws_client.py)
-    s3_key = upload_bytes(contents, file.filename)   # <-- NEW
+    s3_key = upload_bytes(contents, file.filename)  # <-- NEW
 
     # 3️⃣ DataFrame / preview
     df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
@@ -128,21 +140,21 @@ async def upload_csv(file: UploadFile = File(...)):
     summary = df.describe(include="all")
     # replace infinities with NaN, then turn all NaNs into empty string (or null)
     summary = summary.replace([np.inf, -np.inf], np.nan).fillna("")
-    summary_dict = summary.astype(str).to_dict()   # cast every cell to string
+    summary_dict = summary.astype(str).to_dict()  # cast every cell to string
 
     insights = {
-        "preview"       : df.head().to_dict(orient="records"),
-        "records"       : df.to_dict(orient="records"), 
-        "shape"         : list(df.shape),
-        "columns"       : df.columns.tolist(),
-        "dtypes"        : df.dtypes.astype(str).to_dict(),
-        "null_counts"   : df.isnull().sum().to_dict(),
-        "summary_stats" : df.describe(include="all").fillna("").to_dict(),
-        "info_output"   : info_output,
-        "s3_key"        : s3_key,                    # <-- NEW
+        "preview": df.head().to_dict(orient="records"),
+        "records": df.to_dict(orient="records"),
+        "shape": list(df.shape),
+        "columns": df.columns.tolist(),
+        "dtypes": df.dtypes.astype(str).to_dict(),
+        "null_counts": df.isnull().sum().to_dict(),
+        "summary_stats": df.describe(include="all").fillna("").to_dict(),
+        "info_output": info_output,
+        "s3_key": s3_key,  # <-- NEW
     }
-    
-      # ensure all numpy types are finally plain Python
+
+    # ensure all numpy types are finally plain Python
     return jsonable_encoder(insights)
 
 
@@ -156,21 +168,21 @@ class DatasetCreate(BaseModel):
 
 @app.post("/datasets/save", dependencies=[Depends(current_user)])
 async def save_dataset(
-        data: DatasetCreate,
-        db: AsyncSession = Depends(get_async_db)):   # ✅ AsyncSession here
+    data: DatasetCreate, db: AsyncSession = Depends(get_async_db)
+):  # ✅ AsyncSession here
     try:
         dataset = DatasetModel(
             title=data.title,
             description=data.description,
             filename=data.filename,
             raw_data=data.raw_data,
-            s3_key=data.s3_key
+            s3_key=data.s3_key,
         )
 
         db.add(dataset)
-        await db.flush()          # ✦ 1. push to DB, id is generated
-        await db.refresh(dataset) # ✦ 2. pull the PK back
-        await db.commit()         # ✦ 3. finalize transaction
+        await db.flush()  # ✦ 1. push to DB, id is generated
+        await db.refresh(dataset)  # ✦ 2. pull the PK back
+        await db.commit()  # ✦ 3. finalize transaction
 
         return {"id": dataset.id}
     except Exception as e:
@@ -185,17 +197,14 @@ async def save_dataset(
 )
 async def list_datasets(db: AsyncSession = Depends(get_async_db)):
     # only pull the lightweight fields, not the full JSON columns
-    stmt = (
-        select(
-            DatasetModel.id,
-            DatasetModel.title,
-            DatasetModel.description,
-            DatasetModel.filename,
-            DatasetModel.s3_key,
-            DatasetModel.uploaded_at,
-        )
-        .order_by(DatasetModel.uploaded_at.desc())
-    )
+    stmt = select(
+        DatasetModel.id,
+        DatasetModel.title,
+        DatasetModel.description,
+        DatasetModel.filename,
+        DatasetModel.s3_key,
+        DatasetModel.uploaded_at,
+    ).order_by(DatasetModel.uploaded_at.desc())
     result = await db.execute(stmt)
     rows = result.all()  # a list of Row(id=…, title=…, …)
 
@@ -212,9 +221,10 @@ async def list_datasets(db: AsyncSession = Depends(get_async_db)):
         for row in rows
     ]
 
+
 @app.get(
     "/datasets/{dataset_id}",
-    response_model=schemas.Dataset,       # Pydantic schema for a single dataset
+    response_model=schemas.Dataset,  # Pydantic schema for a single dataset
     dependencies=[Depends(current_user)],
 )
 async def get_dataset(
@@ -225,7 +235,8 @@ async def get_dataset(
     row = await db.get(DatasetModel, dataset_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    return row   # FastAPI will convert it to DatasetSchema via orm_mode
+    return row  # FastAPI will convert it to DatasetSchema via orm_mode
+
 
 @app.get(
     "/datasets/{dataset_id}/insights",
@@ -239,7 +250,7 @@ async def get_dataset_insights(
     ds = await db.get(DatasetModel, dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    
+
     # build a DataFrame
     df = pd.DataFrame(ds.raw_data)
 
@@ -250,16 +261,18 @@ async def get_dataset_insights(
 
     # assemble exactly the same insights shape as /upload-csv
     return {
-        "preview":       df.head().to_dict(orient="records"),
-        "shape":         list(df.shape),
-        "columns":       df.columns.tolist(),
-        "dtypes":        df.dtypes.astype(str).to_dict(),
-        "null_counts":   df.isnull().sum().to_dict(),
+        "preview": df.head().to_dict(orient="records"),
+        "shape": list(df.shape),
+        "columns": df.columns.tolist(),
+        "dtypes": df.dtypes.astype(str).to_dict(),
+        "null_counts": df.isnull().sum().to_dict(),
         "summary_stats": df.describe(include="all").fillna("").to_dict(),
-        "info_output":   info_output,
+        "info_output": info_output,
     }
 
+
 from fastapi import status
+
 
 @app.delete(
     "/datasets/{dataset_id}",
@@ -286,7 +299,7 @@ async def delete_dataset(
             print("🔴 S3 delete error:", e)
 
     # do the DB delete + commit
-    await db.delete(ds)   
+    await db.delete(ds)
     await db.commit()
     print("🔴 Committed delete")
 
@@ -295,8 +308,6 @@ async def delete_dataset(
     print("🔴 After commit, db.get returned:", still)
 
     return
-
-
 
 
 @app.post("/datasets/{dataset_id}/clean")
@@ -313,12 +324,9 @@ def clean_data(req: CleanRequest):
     cleaned_dict = df.to_dict(orient="records")
     filename = req.operations.get("filename", "unknown.csv")
 
-    db = AsyncSession = Depends(get_async_db),
+    db = AsyncSession = (Depends(get_async_db),)
     try:
-        new_dataset = DatasetModel(
-            filename=filename,
-            cleaned_data=cleaned_dict
-        )
+        new_dataset = DatasetModel(filename=filename, cleaned_data=cleaned_dict)
         db.add(new_dataset)
         db.commit()
         db.refresh(new_dataset)
@@ -329,12 +337,13 @@ def clean_data(req: CleanRequest):
 
 
 def get_db():
-    db = AsyncSession = Depends(get_async_db),
+    db = AsyncSession = (Depends(get_async_db),)
     try:
         yield db
     finally:
         db.close()
-                              
+
+
 @app.post(
     "/datasets/{dataset_id}/process",
     dependencies=[Depends(current_user)],
@@ -364,7 +373,8 @@ async def process_dataset(
 
     renames = (
         {old: new for old, new in zip(ds.raw_data[0].keys(), df.columns)}
-        if ops.lowercase_headers else {}
+        if ops.lowercase_headers
+        else {}
     )
 
     # ─── Preprocessing ──────────────────────────────────────────────
@@ -385,6 +395,7 @@ async def process_dataset(
     cat_maps = {}
     if payload.preprocess.encoding == "label":
         from sklearn.preprocessing import LabelEncoder
+
         for c in df.select_dtypes("object"):
             le = LabelEncoder().fit(df[c].fillna(""))
             cat_maps[c] = dict(zip(le.classes_, le.transform(le.classes_)))
@@ -398,19 +409,24 @@ async def process_dataset(
     # ─── Persist in DB and S3 ───────────────────────────────────────
     # Convert every nested  into plain Python
     cleaned_records = _to_py(df.to_dict(orient="records"))
-    norm_py         = _to_py(norm_params)
-    cat_py          = _to_py(cat_maps)
+    norm_py = _to_py(norm_params)
+    cat_py = _to_py(cat_maps)
 
     # quick debug to verify types
-    print("DEBUG types:", 
-          "cleaned_records[0] types:", {k:type(v) for k,v in cleaned_records[0].items()},
-          "norm_py types:", {k:type(v["min"]) for k,v in norm_py.items()} if norm_py else {},
-          "cat_py types:", {k:type(v) for k,v in cat_py.items()} )
+    print(
+        "DEBUG types:",
+        "cleaned_records[0] types:",
+        {k: type(v) for k, v in cleaned_records[0].items()},
+        "norm_py types:",
+        {k: type(v["min"]) for k, v in norm_py.items()} if norm_py else {},
+        "cat_py types:",
+        {k: type(v) for k, v in cat_py.items()},
+    )
 
-    ds.column_renames        = renames
-    ds.cleaned_data          = cleaned_records
-    ds.normalization_params  = norm_py
-    ds.categorical_mappings  = cat_py
+    ds.column_renames = renames
+    ds.cleaned_data = cleaned_records
+    ds.normalization_params = norm_py
+    ds.categorical_mappings = cat_py
 
     buf = io.StringIO()
     df.to_csv(buf, index=False)
@@ -426,6 +442,7 @@ async def process_dataset(
         "normalization_params": norm_py,
         "categorical_mappings": cat_py,
     }
+
 
 @app.get(
     "/datasets/{dataset_id}/download",
@@ -452,14 +469,8 @@ async def download_dataset(
     return {"url": url}
 
 
-@app.get(
-    "/datasets/{dataset_id}/heatmap",
-    dependencies=[Depends(current_user)]
-)
-async def get_heatmap(
-    dataset_id: int,
-    db: AsyncSession = Depends(get_async_db)
-):
+@app.get("/datasets/{dataset_id}/heatmap", dependencies=[Depends(current_user)])
+async def get_heatmap(dataset_id: int, db: AsyncSession = Depends(get_async_db)):
     obj = await db.get(DatasetModel, dataset_id)
     if not obj or not obj.raw_data:
         raise HTTPException(status_code=404, detail="Dataset not found or empty")
@@ -467,8 +478,7 @@ async def get_heatmap(
     df = pd.DataFrame(obj.raw_data)
 
     plt.figure(figsize=(10, 8))
-    sns.heatmap(df.corr(numeric_only=True), annot=True,
-                cmap="coolwarm", fmt=".2f")
+    sns.heatmap(df.corr(numeric_only=True), annot=True, cmap="coolwarm", fmt=".2f")
     buf = io.BytesIO()
     plt.savefig(buf, format="png", bbox_inches="tight")
     buf.seek(0)
@@ -478,14 +488,8 @@ async def get_heatmap(
     return {"plot": f"data:image/png;base64,{img_b64}"}
 
 
-@app.get(
-    "/datasets/{dataset_id}/correlation",
-    dependencies=[Depends(current_user)]
-)
-async def correlation_matrix(
-    dataset_id: int,
-    db: AsyncSession = Depends(get_async_db)
-):
+@app.get("/datasets/{dataset_id}/correlation", dependencies=[Depends(current_user)])
+async def correlation_matrix(dataset_id: int, db: AsyncSession = Depends(get_async_db)):
     obj = await db.get(DatasetModel, dataset_id)
     if not obj or not obj.raw_data:
         raise HTTPException(status_code=404, detail="Dataset not found")
@@ -499,20 +503,26 @@ async def correlation_matrix(
     plt.imshow(corr, cmap="coolwarm", interpolation="nearest")
     plt.xticks(range(len(corr.columns)), corr.columns, rotation=90)
     plt.yticks(range(len(corr.columns)), corr.columns)
-    plt.colorbar();  plt.tight_layout()
+    plt.colorbar()
+    plt.tight_layout()
 
     buf = io.BytesIO()
-    plt.savefig(buf, format="png"); buf.seek(0);  plt.close()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    plt.close()
 
     img_b64 = base64.b64encode(buf.read()).decode()
     return {"heatmap": f"data:image/png;base64,{img_b64}"}
 
+
 @app.post(
     "/datasets/{dataset_id}/clean-preview",
     dependencies=[Depends(current_user)],
-    response_model=dict   
+    response_model=dict,
 )
-async def preview_cleaning(data: Dict[str, Any], db: AsyncSession = Depends(get_async_db)):
+async def preview_cleaning(
+    data: Dict[str, Any], db: AsyncSession = Depends(get_async_db)
+):
     dataset_id = data.get("dataset_id")
     operations = data.get("operations", {})
 
@@ -529,7 +539,7 @@ async def preview_cleaning(data: Dict[str, Any], db: AsyncSession = Depends(get_
     before = {
         "shape": df.shape,
         "null_counts": df.isnull().sum().to_dict(),
-        "dtypes": df.dtypes.astype(str).to_dict()
+        "dtypes": df.dtypes.astype(str).to_dict(),
     }
 
     # --- Lowercase Headers ---
@@ -572,11 +582,14 @@ async def preview_cleaning(data: Dict[str, Any], db: AsyncSession = Depends(get_
     # --- Encode Categorical Variables ---
     encoding = operations.get("encoding")
     if encoding in {"onehot", "label"}:
-        cat_cols = df_cleaned.select_dtypes(include=["object", "category"]).columns.tolist()
+        cat_cols = df_cleaned.select_dtypes(
+            include=["object", "category"]
+        ).columns.tolist()
         if encoding == "onehot":
             df_cleaned = pd.get_dummies(df_cleaned, columns=cat_cols)
         elif encoding == "label":
             from sklearn.preprocessing import LabelEncoder
+
             for col in cat_cols:
                 le = LabelEncoder()
                 df_cleaned[col] = le.fit_transform(df_cleaned[col])
@@ -585,7 +598,7 @@ async def preview_cleaning(data: Dict[str, Any], db: AsyncSession = Depends(get_
     after = {
         "shape": df_cleaned.shape,
         "null_counts": df_cleaned.isnull().sum().to_dict(),
-        "dtypes": df_cleaned.dtypes.astype(str).to_dict()
+        "dtypes": df_cleaned.dtypes.astype(str).to_dict(),
     }
 
     return {
@@ -605,11 +618,6 @@ def get_plot():
     return {"plot": f"data:image/png;base64,{img_b64}"}
 
 
-
-
-
-
-
 # Only mount the React build when running on Heroku (DYNO env var present)
 if "DYNO" in os.environ:
     DIST = Path(__file__).resolve().parent.parent / "client" / "dist"
@@ -621,3 +629,17 @@ else:
     print("⚠️  Development mode: skipping static mount")
 
 
+@app.get("/{full_path:path}")
+async def spa_router(request: Request, full_path: str):
+    # Don’t catch real API routes
+    if full_path.startswith(
+        ("auth", "users", "datasets", "models", "upload-csv", "clean", "correlation")
+    ):
+        return {"detail": "Not Found"}
+
+    index_path = (
+        Path(__file__).resolve().parent.parent / "client" / "dist" / "index.html"
+    )
+    if index_path.exists():
+        return FileResponse(index_path)
+    return {"detail": "Not Found"}
