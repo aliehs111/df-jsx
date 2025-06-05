@@ -1,3 +1,4 @@
+// client/vite.config.js
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -5,50 +6,36 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      // authentication & user
-      "/auth": {
+      // All backend endpoints now live under /api
+      "/api/auth": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-      "/users": {
+      "/api/users": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-
-      // datasets list & detail (includes /datasets and /datasets/:id)
-      "/datasets": {
+      "/api/datasets": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-
-      // model runner API
-      "/models": {
+      "/api/models": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-
-      // CSV upload
-      "/upload-csv": {
+      "/api/upload-csv": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-
-      // cleaning
-      "/clean": {
+      "/api/clean": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-
-      // correlation heatmap
-      "/correlation": {
+      "/api/correlation": {
         target: "http://localhost:8000",
         changeOrigin: true,
       },
-      // model runner API
-      "/models": {
-        target: "http://localhost:8000",
-        changeOrigin: true,
-      },
+      // other /api/... routes
     },
   },
 });

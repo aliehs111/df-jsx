@@ -1,64 +1,85 @@
+// client/src/components/DataCleaning.jsx
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 
 export default function DataCleaning() {
   const { id } = useParams();
+  const navigate = useNavigate();
+
   const [rawData, setRawData] = useState([]);
   const [cleanedData, setCleanedData] = useState([]);
   const [beforeStats, setBeforeStats] = useState(null);
   const [afterStats, setAfterStats] = useState(null);
   const [options, setOptions] = useState({});
-  const [filename, setFilename]       = useState(""); 
+  const [filename, setFilename] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
-  
-    fetch(`/datasets/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Cannot load dataset");
-        return res.json();
-      })
-      .then((data) => {
+    const fetchDataset = async () => {
+      try {
+        const res = await fetch(`/api/datasets/${id}`, {
+          method: "GET",
+          credentials: "include",
+        });
+        if (res.status === 401) {
+          navigate("/login");
+          return;
+        }
+        if (res.status === 404) {
+          navigate("/datasets");
+          return;
+        }
+        if (!res.ok) {
+          throw new Error("Cannot load dataset");
+        }
+        const data = await res.json();
         setRawData(data.raw_data);
         setFilename(data.filename);
-  })
-
-      .catch(console.error);
-  }, [id]);
-  
+      } catch (err) {
+        console.error(err);
+        setError("Failed to load dataset");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchDataset();
+  }, [id, navigate]);
 
   const handlePreview = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) return alert("Please log in again");
-  
-    const res = await fetch("/datasets/${id}/clean-preview", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ dataset_id: id, operations: options }),
-    });
-  
-    if (!res.ok) {
+    try {
+      const res = await fetch(`/api/datasets/${id}/clean-preview`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ dataset_id: Number(id), operations: options }),
+      });
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) {
+        throw new Error("Preview failed");
+      }
+      const data = await res.json();
+      setBeforeStats(data.before_stats);
+      setAfterStats(data.after_stats);
+      if (data.preview) {
+        setCleanedData(data.preview);
+      }
+    } catch (err) {
+      console.error(err);
       alert("Preview failed");
-      return;
     }
-  
-    const data = await res.json();
-    setBeforeStats(data.before_stats);
-    setAfterStats(data.after_stats);
-    // NOTE: backend returns no “preview” key – you probably want after_stats
-    // setCleanedData(data.preview);
-  }
-  
+  };
 
   const renderStats = (stats) => (
     <div className="bg-gray-50 p-4 rounded shadow text-sm">
-      <p><strong>Shape:</strong> {stats.shape.join(" x ")}</p>
+      <p>
+        <strong>Shape:</strong> {stats.shape.join(" × ")}
+      </p>
       <div className="mt-2">
         <p className="font-semibold">Null Counts:</p>
         <table className="table-auto text-sm w-full mt-1">
@@ -88,18 +109,30 @@ export default function DataCleaning() {
     </div>
   );
 
+  if (loading) {
+    return <div className="p-6">Loading…</div>;
+  }
+  if (error) {
+    return <div className="p-6 text-red-500">{error}</div>;
+  }
+
   return (
     <div className="max-w-6xl mx-auto p-6 bg-white shadow rounded">
-      <h2 className="text-2xl font-bold mb-4 text blue-800">Pipeline Sandbox</h2>
+      <h2 className="text-2xl font-bold mb-4 text-blue-800">
+        Pipeline Sandbox
+      </h2>
       <p className="text-gray-700 mb-6">
-      File: <span className="font-medium">{filename}</span>
-    </p>
+        File: <span className="font-medium">{filename}</span>
+      </p>
       <div className="grid gap-4 mb-6">
         <div>
           <label className="block font-medium">Missing Value Strategy</label>
           <select
             onChange={(e) =>
-              setOptions((prev) => ({ ...prev, fillna_strategy: e.target.value }))
+              setOptions((prev) => ({
+                ...prev,
+                fillna_strategy: e.target.value,
+              }))
             }
             className="mt-1 block w-full rounded border border-gray-300 px-3 py-2"
           >
@@ -145,7 +178,10 @@ export default function DataCleaning() {
               type="checkbox"
               className="mr-2"
               onChange={(e) =>
-                setOptions((prev) => ({ ...prev, lowercase_headers: e.target.checked }))
+                setOptions((prev) => ({
+                  ...prev,
+                  lowercase_headers: e.target.checked,
+                }))
               }
             />
             Convert column names to lowercase
@@ -173,8 +209,7 @@ export default function DataCleaning() {
         </div>
       )}
 
-{Array.isArray(cleanedData) && cleanedData.length > 0 && (
-
+      {Array.isArray(cleanedData) && cleanedData.length > 0 && (
         <div className="mt-6">
           <h3 className="text-xl font-semibold mb-2">Cleaned Data Preview</h3>
           <div className="overflow-auto bg-gray-50 p-4 rounded">
@@ -206,7 +241,3 @@ export default function DataCleaning() {
     </div>
   );
 }
-
-
-
-

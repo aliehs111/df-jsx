@@ -1,11 +1,4 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  server/main.py  –  CLEAN IMPORTS
-#    • Std-lib   → no external deps
-#    • 3rd-party → wheels from requirements.txt
-#    • Local     → always prefix with  “server.”  so they resolve everywhere
-# ─────────────────────────────────────────────────────────────────────────────
-
-
+# server/main.py
 # ---------- Standard library ----------
 import sys
 import os
@@ -57,10 +50,14 @@ from server.auth.userroutes import router as user_router, fastapi_users
 from server.auth.userbase import User
 from server.auth.userroutes import current_user
 from server.schemas import ProcessRequest
-from server.routers import insights
-from server.routers import modelrunner
-from server.utils.encoders import _to_py
 
+from server.utils.encoders import _to_py
+from server.auth.userroutes import router as user_router
+
+from server.routers.datasets import router as datasets_router
+from server.routers.modelrunner import router as model_runner_router
+from server.routers.insights import router as insights_router
+from server.routers import modelrunner
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  END IMPORTS
@@ -88,17 +85,20 @@ origins = [
     "http://127.0.0.1:5174",
 ]
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[FRONTEND_URL],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-app.include_router(user_router)
-app.include_router(insights.router)
-app.include_router(modelrunner.router)
+
+app.include_router(user_router, prefix="/api")
+app.include_router(datasets_router, prefix="/api")
+app.include_router(insights_router, prefix="/api", tags=["insights"])
+app.include_router(model_runner_router, prefix="/api", tags=["models"])
 
 
 class CleanRequest(BaseModel):
@@ -106,7 +106,7 @@ class CleanRequest(BaseModel):
     operations: Dict[str, Any]
 
 
-@app.get("/health")
+@app.get("/api/health")
 def read_root():
     return {"message": "Backend is alive!"}
 
@@ -121,7 +121,7 @@ async def on_startup():
     await init_models()
 
 
-@app.post("/upload-csv", dependencies=[Depends(current_user)])
+@app.post("/api/upload-csv", dependencies=[Depends(current_user)])
 async def upload_csv(file: UploadFile = File(...)):
     # 1️⃣ read the bytes
     contents = await file.read()
@@ -166,7 +166,7 @@ class DatasetCreate(BaseModel):
     s3_key: str
 
 
-@app.post("/datasets/save", dependencies=[Depends(current_user)])
+@app.post("/api/datasets/save", dependencies=[Depends(current_user)])
 async def save_dataset(
     data: DatasetCreate, db: AsyncSession = Depends(get_async_db)
 ):  # ✅ AsyncSession here
@@ -191,7 +191,7 @@ async def save_dataset(
 
 
 @app.get(
-    "/datasets",
+    "/api/datasets",
     response_model=List[schemas.DatasetSummary],
     dependencies=[Depends(current_user)],
 )
@@ -223,7 +223,7 @@ async def list_datasets(db: AsyncSession = Depends(get_async_db)):
 
 
 @app.get(
-    "/datasets/{dataset_id}",
+    "/api/datasets/{dataset_id}",
     response_model=schemas.Dataset,  # Pydantic schema for a single dataset
     dependencies=[Depends(current_user)],
 )
@@ -239,7 +239,7 @@ async def get_dataset(
 
 
 @app.get(
-    "/datasets/{dataset_id}/insights",
+    "/api/datasets/{dataset_id}/insights",
     dependencies=[Depends(current_user)],
 )
 async def get_dataset_insights(
@@ -275,7 +275,7 @@ from fastapi import status
 
 
 @app.delete(
-    "/datasets/{dataset_id}",
+    "/api/datasets/{dataset_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(current_user)],
 )
@@ -310,7 +310,7 @@ async def delete_dataset(
     return
 
 
-@app.post("/datasets/{dataset_id}/clean")
+@app.post("/api/datasets/{dataset_id}/clean")
 def clean_data(req: CleanRequest):
     df = pd.DataFrame(req.data)
 
@@ -345,7 +345,7 @@ def get_db():
 
 
 @app.post(
-    "/datasets/{dataset_id}/process",
+    "/api/datasets/{dataset_id}/process",
     dependencies=[Depends(current_user)],
 )
 async def process_dataset(
@@ -445,7 +445,7 @@ async def process_dataset(
 
 
 @app.get(
-    "/datasets/{dataset_id}/download",
+    "/api/datasets/{dataset_id}/download",
     dependencies=[Depends(current_user)],
 )
 async def download_dataset(
@@ -469,7 +469,7 @@ async def download_dataset(
     return {"url": url}
 
 
-@app.get("/datasets/{dataset_id}/heatmap", dependencies=[Depends(current_user)])
+@app.get("/api/datasets/{dataset_id}/heatmap", dependencies=[Depends(current_user)])
 async def get_heatmap(dataset_id: int, db: AsyncSession = Depends(get_async_db)):
     obj = await db.get(DatasetModel, dataset_id)
     if not obj or not obj.raw_data:
@@ -488,7 +488,7 @@ async def get_heatmap(dataset_id: int, db: AsyncSession = Depends(get_async_db))
     return {"plot": f"data:image/png;base64,{img_b64}"}
 
 
-@app.get("/datasets/{dataset_id}/correlation", dependencies=[Depends(current_user)])
+@app.get("/api/datasets/{dataset_id}/correlation", dependencies=[Depends(current_user)])
 async def correlation_matrix(dataset_id: int, db: AsyncSession = Depends(get_async_db)):
     obj = await db.get(DatasetModel, dataset_id)
     if not obj or not obj.raw_data:
@@ -516,7 +516,7 @@ async def correlation_matrix(dataset_id: int, db: AsyncSession = Depends(get_asy
 
 
 @app.post(
-    "/datasets/{dataset_id}/clean-preview",
+    "/api/datasets/{dataset_id}/clean-preview",
     dependencies=[Depends(current_user)],
     response_model=dict,
 )
@@ -607,7 +607,7 @@ async def preview_cleaning(
     }
 
 
-@app.get("/plot")
+@app.get("/api/plot")
 def get_plot():
     plt.figure()
     pd.Series([1, 3, 2, 5]).plot(kind="bar")
@@ -629,17 +629,14 @@ else:
     print("⚠️  Development mode: skipping static mount")
 
 
+# 8) SPA catch‐all (for React routing)
 @app.get("/{full_path:path}")
 async def spa_router(request: Request, full_path: str):
-    # Don’t catch real API routes
-    if full_path.startswith(
-        ("auth", "users", "datasets", "models", "upload-csv", "clean", "correlation")
-    ):
-        return {"detail": "Not Found"}
-
-    index_path = (
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    index_file = (
         Path(__file__).resolve().parent.parent / "client" / "dist" / "index.html"
     )
-    if index_path.exists():
-        return FileResponse(index_path)
-    return {"detail": "Not Found"}
+    if index_file.exists():
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Not Found")

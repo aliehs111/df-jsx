@@ -1,3 +1,4 @@
+// client/src/components/DatasetsList.jsx
 import { useEffect, useState } from "react";
 import { CalendarIcon, EyeIcon, TrashIcon } from "@heroicons/react/20/solid";
 import { Link, useNavigate } from "react-router-dom";
@@ -10,33 +11,21 @@ export default function DatasetsList() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Small delay to ensure token is available after refresh
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setError("Please log in to view datasets");
-      setLoading(false);
-      return;
-    }
-
     const fetchDatasets = async () => {
       try {
-        const res = await fetch("/datasets", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+        const res = await fetch("/api/datasets", {
+          method: "GET",
+          credentials: "include", // ← send cookie
         });
-
         if (res.status === 401) {
           setError("Session expired. Please log in again.");
           navigate("/login");
           return;
         }
-
         if (!res.ok) {
           throw new Error("Failed to fetch datasets");
         }
-
         const data = await res.json();
         setDatasets(data);
       } catch (err) {
@@ -45,24 +34,17 @@ export default function DatasetsList() {
         setLoading(false);
       }
     };
-
     fetchDatasets();
   }, [navigate]);
 
   const handleDelete = async (id) => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setError("Not authorized.");
-      return;
-    }
-
     if (!window.confirm("Are you sure you want to delete this dataset?"))
       return;
 
     try {
-      const res = await fetch(`/datasets/${id}`, {
+      const res = await fetch(`/api/datasets/${id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include", // ← send HttpOnly cookie
       });
 
       if (res.status === 204) {

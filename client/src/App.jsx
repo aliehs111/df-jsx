@@ -7,10 +7,9 @@ import {
   Route,
   Navigate,
 } from "react-router-dom";
-import axios from "axios";
 
 import SignIn from "./components/SignIn";
-import SignUp from "./components/SignUp"; // ← import your new signup
+import SignUp from "./components/SignUp";
 import FileUpload from "./components/FileUpload";
 import DataCleaning from "./components/DataCleaning";
 import Dashboard from "./components/Dashboard";
@@ -26,43 +25,44 @@ import Models from "./components/Models";
 
 function App() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [checkingAuth, setCheckingAuth] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-
-    axios
-      .get("/users/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      .then((res) => setUser(res.data))
-      .catch((err) => {
-        console.error("Auth error:", err);
-        localStorage.removeItem("token");
-      })
-      .finally(() => setLoading(false));
+    const fetchCurrentUser = async () => {
+      try {
+        const res = await fetch("/api/users/me", {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const userData = await res.json();
+          setUser(userData);
+        }
+      } catch {
+        // if network error or 401, remain unauthenticated
+      } finally {
+        setCheckingAuth(false);
+      }
+    };
+    fetchCurrentUser();
   }, []);
 
-  if (loading) return <div>Loading...</div>;
+  if (checkingAuth) {
+    return <div className="text-center py-8">Loading...</div>;
+  }
 
   const ProtectedRoute = ({ element }) =>
-    user ? element : <Navigate to="/login" replace />;
+    user ? element : <Navigate to="/" replace />;
 
   return (
     <Router>
       <Navbar user={user} setUser={setUser} />
 
       <Routes>
-        {/* public routes */}
+        {/* Public routes */}
         <Route
           path="/"
           element={user ? <Navigate to="/dashboard" replace /> : <Splash />}
         />
-
         <Route
           path="/login"
           element={
@@ -84,7 +84,7 @@ function App() {
           }
         />
 
-        {/* protected */}
+        {/* Protected routes */}
         <Route
           path="/dashboard"
           element={<ProtectedRoute element={<Dashboard user={user} />} />}
@@ -93,11 +93,6 @@ function App() {
           path="/upload"
           element={<ProtectedRoute element={<FileUpload user={user} />} />}
         />
-        <Route
-          path="/datasets/:id/insights"
-          element={<ProtectedRoute element={<DataInsights />} />}
-        />
-
         <Route
           path="/datasets"
           element={<ProtectedRoute element={<DatasetsList />} />}
@@ -111,19 +106,23 @@ function App() {
           element={<ProtectedRoute element={<DataCleaning />} />}
         />
         <Route
-          path="/resources"
-          element={<ProtectedRoute element={<Resources />} />}
+          path="/datasets/:id/insights"
+          element={<ProtectedRoute element={<DataInsights />} />}
         />
         <Route
           path="/datasets/:id/process"
           element={<ProtectedRoute element={<ProcessDataset />} />}
         />
         <Route
+          path="/resources"
+          element={<ProtectedRoute element={<Resources />} />}
+        />
+        <Route
           path="/models"
           element={<ProtectedRoute element={<Models />} />}
         />
 
-        {/* catch-all: if logged in → dashboard, otherwise go home (Splash) */}
+        {/* Catch-all */}
         <Route
           path="*"
           element={

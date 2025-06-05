@@ -1,6 +1,6 @@
 // client/src/components/Models.jsx
 import { useEffect, useState } from "react";
-import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 export default function Models() {
   const [datasets, setDatasets] = useState([]);
@@ -11,45 +11,61 @@ export default function Models() {
   const models = ["RandomForest", "PCA_KMeans", "LogisticRegression"];
   const [nClusters, setNClusters] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    axios
-      .get("/datasets", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      .then((res) => setDatasets(res.data))
-      .catch((err) => console.error("Failed to fetch datasets", err));
-  }, []);
+    const fetchCleanedDatasets = async () => {
+      try {
+        const res = await fetch("/api/datasets/cleaned", {
+          method: "GET",
+          credentials: "include",
+        });
+        if (res.status === 401) {
+          navigate("/login");
+          return;
+        }
+        if (!res.ok) {
+          console.error("Failed to fetch cleaned datasets:", res.status);
+          setDatasets([]);
+          return;
+        }
+        const data = await res.json();
+        setDatasets(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error("Failed to fetch cleaned datasets", err);
+        setDatasets([]);
+      }
+    };
 
-  // useEffect(() => {
-  //   setResult(null); // Clear previous result
-  // }, [selectedDataset, selectedModel]);
+    fetchCleanedDatasets();
+  }, [navigate]);
 
   const handleRunModel = async () => {
     if (!selectedDataset || !selectedModel) return;
     setIsLoading(true);
-    const token = localStorage.getItem("token");
-
     try {
-      const response = await axios.post(
-        "/models/run",
-        {
+      const res = await fetch("/api/models/run", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           dataset_id: selectedDataset,
           model_name: selectedModel,
           n_clusters: nClusters,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-      setResult(response.data);
-    } catch (error) {
-      console.error("Model run failed", error.response?.data || error.message);
-      setResult({ error: "Model run failed. Check backend logs." });
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error("🛑 POST /api/models/run failed:", res.status, errorText);
+        setResult({ error: `Model run failed (${res.status}): ${errorText}` });
+      } else {
+        const data = await res.json();
+        setResult(data);
+      }
+    } catch (err) {
+      console.error("🛑 Network error on /api/models/run:", err);
+      setResult({ error: `Network error: ${err.message}` });
     } finally {
       setIsLoading(false);
     }
@@ -69,7 +85,7 @@ export default function Models() {
                 className={`cursor-pointer p-2 rounded border hover:bg-blue-50 ${
                   selectedDataset === ds.id ? "bg-blue-100" : ""
                 }`}
-                onClick={() => setSelectedDataset(Number(ds.id))}
+                onClick={() => setSelectedDataset(ds.id)}
               >
                 {ds.title}
               </li>
@@ -93,7 +109,6 @@ export default function Models() {
             ))}
           </ul>
 
-          {/* Only show if PCA_KMeans is selected */}
           {selectedModel === "PCA_KMeans" && (
             <div className="bg-amber-50 border border-yellow-300 p-4 rounded shadow">
               <label
@@ -123,9 +138,9 @@ export default function Models() {
         <button
           onClick={handleRunModel}
           className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-600"
-          disabled={!selectedDataset || !selectedModel}
+          disabled={!selectedDataset || !selectedModel || isLoading}
         >
-          Run Model
+          {isLoading ? "Running..." : "Run Model"}
         </button>
       </div>
 
@@ -133,23 +148,20 @@ export default function Models() {
         <div className="mt-6 bg-gray-100 p-4 rounded shadow">
           <h2 className="text-lg font-semibold mb-4">🧾 Model Output</h2>
 
-          {/* Optional Plot */}
           {result.image_base64 && (
             <img
               src={`data:image/png;base64,${result.image_base64}`}
-              alt="PCA KMeans Clustering"
+              alt="Model result"
               className="w-full max-w-lg mx-auto rounded-lg shadow-md mb-4"
             />
           )}
 
-          {/* Clusters */}
           {result.n_clusters && (
             <p className="mb-2">
               <strong>Clusters:</strong> {result.n_clusters}
             </p>
           )}
 
-          {/* Cluster Counts */}
           {result.cluster_counts && (
             <div className="mb-4">
               <h3 className="font-medium">Cluster Counts:</h3>
@@ -165,7 +177,6 @@ export default function Models() {
             </div>
           )}
 
-          {/* PCA Variance */}
           {result.pca_variance_ratio && (
             <div className="mb-4">
               <h3 className="font-medium">Explained Variance (PCA):</h3>
@@ -179,15 +190,9 @@ export default function Models() {
             </div>
           )}
 
-          {/* Message */}
           {result.message && (
             <p className="mt-2 text-sm text-gray-600">✅ {result.message}</p>
           )}
-          {/* {process.env.NODE_ENV === "development" && (
-            <pre className="mt-4 text-xs text-gray-500">
-              {JSON.stringify(result, null, 2)}
-            </pre>
-          )} */}
         </div>
       )}
     </div>

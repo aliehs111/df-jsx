@@ -1,33 +1,43 @@
 // src/components/Navbar.jsx
-import { NavLink, useNavigate } from 'react-router-dom'
-import { Disclosure } from '@headlessui/react'
+import { NavLink, useNavigate } from "react-router-dom";
+import { Disclosure } from "@headlessui/react";
 import {
   Bars3Icon,
   XMarkIcon,
   ArrowRightOnRectangleIcon,
   UserPlusIcon,
-  BellIcon,
-} from '@heroicons/react/24/outline'
-import newlogo500 from '../assets/newlogo500.png'
+} from "@heroicons/react/24/outline";
+import newlogo500 from "../assets/newlogo500.png";
 
 const NAV_LINKS = [
-  { name: 'Dashboard',    to: '/dashboard' },
-  { name: 'Upload',       to: '/upload' },
-  { name: 'Datasets',  to: '/datasets' },
-  { name: 'Resources',    to: '/resources'},
-  { name: 'Models', to:'/models'}
-
-]
+  { name: "Dashboard", to: "/dashboard" },
+  { name: "Upload", to: "/upload" },
+  { name: "Datasets", to: "/datasets" },
+  { name: "Resources", to: "/resources" },
+  { name: "Models", to: "/models" },
+];
 
 export default function Navbar({ user, setUser }) {
-  const navigate = useNavigate()
+  const navigate = useNavigate();
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    setUser(null)                // ← clear App’s user state
-    window.location.replace('/')
-  }
+  const handleLogout = async () => {
+    try {
+      // 1) Call FastAPI Users' logout endpoint to clear the HttpOnly cookie
+      await fetch("/api/auth/jwt/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (err) {
+      console.error("Logout error:", err);
+    } finally {
+      // 2) Also clear any localStorage state and App state
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      setUser(null);
+      // 3) Navigate back to the Splash page
+      navigate("/", { replace: true });
+    }
+  };
 
   return (
     <Disclosure as="nav" className="bg-cyan-400 shadow">
@@ -35,11 +45,14 @@ export default function Navbar({ user, setUser }) {
         <>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex h-16 justify-between">
-              
               {/* Logo + Links */}
               <div className="flex ">
                 <NavLink to="/dashboard" className="flex items-center">
-                  <img src={newlogo500} alt="logo" className="h-12 w-auto rounded-md" />
+                  <img
+                    src={newlogo500}
+                    alt="logo"
+                    className="h-12 w-auto rounded-md"
+                  />
                 </NavLink>
                 <div className="hidden sm:ml-8 sm:flex sm:space-x-4">
                   {NAV_LINKS.map((link) => (
@@ -48,9 +61,9 @@ export default function Navbar({ user, setUser }) {
                       to={link.to}
                       className={({ isActive }) =>
                         (isActive
-                          ? 'border-b-2 border-indigo-700 text-indigo-900'
-                          : 'text-white hover:text-gray-100') +
-                        ' px-3 py-2 rounded-md text-sm font-medium'
+                          ? "border-b-2 border-indigo-700 text-indigo-900"
+                          : "text-white hover:text-gray-100") +
+                        " px-3 py-2 rounded-md text-sm font-medium"
                       }
                     >
                       {link.name}
@@ -63,9 +76,9 @@ export default function Navbar({ user, setUser }) {
               <div className="hidden sm:flex sm:items-center sm:space-x-4">
                 {user ? (
                   <>
-             
                     <span className="text-md text-indigo-900">
-                      Welcome, <span className="font-semibold">{user.email}</span>
+                      Welcome,{" "}
+                      <span className="font-semibold">{user.email}</span>
                     </span>
                     <button
                       onClick={handleLogout}
@@ -118,9 +131,9 @@ export default function Navbar({ user, setUser }) {
                   to={link.to}
                   className={({ isActive }) =>
                     (isActive
-                      ? 'bg-indigo-700 text-white'
-                      : 'text-indigo-900 hover:bg-indigo-300') +
-                    ' block px-3 py-2 rounded-md text-base font-medium'
+                      ? "bg-indigo-700 text-white"
+                      : "text-indigo-900 hover:bg-indigo-300") +
+                    " block px-3 py-2 rounded-md text-base font-medium"
                   }
                 >
                   {link.name}
@@ -163,7 +176,5 @@ export default function Navbar({ user, setUser }) {
         </>
       )}
     </Disclosure>
-  )
+  );
 }
-
-
