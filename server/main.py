@@ -630,13 +630,13 @@ else:
 
 
 # 8) SPA catch‐all (for React routing)
-@app.get("/{full_path:path}")
-async def spa_router(request: Request, full_path: str):
-    if full_path.startswith("api/"):
-        raise HTTPException(status_code=404, detail="Not Found")
-    index_file = (
-        Path(__file__).resolve().parent.parent / "client" / "dist" / "index.html"
-    )
-    if index_file.exists():
-        return FileResponse(index_file)
-    raise HTTPException(status_code=404, detail="Not Found")
+# @app.get("/{full_path:path}")
+# async def spa_router(request: Request, full_path: str):
+#     if full_path.startswith("api/"):
+#         raise HTTPException(status_code=404, detail="Not Found")
+#     index_file = (
+#         Path(__file__).resolve().parent.parent / "client" / "dist" / "index.html"
+#     )
+#     if index_file.exists():
+#         return FileResponse(index_file)
+#     raise HTTPException(status_code=404, detail="Not Found")
