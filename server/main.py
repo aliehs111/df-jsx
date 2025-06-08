@@ -121,27 +121,65 @@ async def on_startup():
     await init_models()
 
 
+# @app.post("/api/upload-csv", dependencies=[Depends(current_user)])
+# async def upload_csv(file: UploadFile = File(...)):
+#     # 1️⃣ read the bytes
+#     contents = await file.read()
+
+#     # 2️⃣ push to S3  (helper imported from aws_client.py)
+#     s3_key = upload_bytes(contents, file.filename)  # <-- NEW
+
+#     # 3️⃣ DataFrame / preview
+#     df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
+
+#     buf = io.StringIO()
+#     df.info(buf=buf)
+#     info_output = buf.getvalue()
+
+#     # build a “safe” summary_stats
+#     summary = df.describe(include="all")
+#     # replace infinities with NaN, then turn all NaNs into empty string (or null)
+#     summary = summary.replace([np.inf, -np.inf], np.nan).fillna("")
+#     summary_dict = summary.astype(str).to_dict()  # cast every cell to string
+
+#     insights = {
+#         "preview": df.head().to_dict(orient="records"),
+#         "records": df.to_dict(orient="records"),
+#         "shape": list(df.shape),
+#         "columns": df.columns.tolist(),
+#         "dtypes": df.dtypes.astype(str).to_dict(),
+#         "null_counts": df.isnull().sum().to_dict(),
+#         "summary_stats": df.describe(include="all").fillna("").to_dict(),
+#         "info_output": info_output,
+#         "s3_key": s3_key,  # <-- NEW
+#     }
+
+#     # ensure all numpy types are finally plain Python
+#     return jsonable_encoder(insights)
+
+
 @app.post("/api/upload-csv", dependencies=[Depends(current_user)])
 async def upload_csv(file: UploadFile = File(...)):
-    # 1️⃣ read the bytes
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only CSV files allowed")
+
     contents = await file.read()
+    s3_key = upload_bytes(contents, file.filename)
 
-    # 2️⃣ push to S3  (helper imported from aws_client.py)
-    s3_key = upload_bytes(contents, file.filename)  # <-- NEW
+    try:
+        df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid CSV: {str(e)}")
 
-    # 3️⃣ DataFrame / preview
-    df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
+    df = df.replace([np.inf, -np.inf], np.nan).where(pd.notna(df), None)
+    for col in df.select_dtypes(include=["float64", "int64"]).columns:
+        df[col] = df[col].astype(object).where(df[col].notnull(), None)
 
     buf = io.StringIO()
     df.info(buf=buf)
     info_output = buf.getvalue()
 
-    # build a “safe” summary_stats
-    summary = df.describe(include="all")
-    # replace infinities with NaN, then turn all NaNs into empty string (or null)
-    summary = summary.replace([np.inf, -np.inf], np.nan).fillna("")
-    summary_dict = summary.astype(str).to_dict()  # cast every cell to string
-
+    summary = df.describe(include="all").replace([np.inf, -np.inf], np.nan).fillna("")
     insights = {
         "preview": df.head().to_dict(orient="records"),
         "records": df.to_dict(orient="records"),
@@ -149,12 +187,11 @@ async def upload_csv(file: UploadFile = File(...)):
         "columns": df.columns.tolist(),
         "dtypes": df.dtypes.astype(str).to_dict(),
         "null_counts": df.isnull().sum().to_dict(),
-        "summary_stats": df.describe(include="all").fillna("").to_dict(),
+        "summary_stats": summary.astype(str).to_dict(),
         "info_output": info_output,
-        "s3_key": s3_key,  # <-- NEW
+        "s3_key": s3_key,
     }
 
-    # ensure all numpy types are finally plain Python
     return jsonable_encoder(insights)
 
 

@@ -1,4 +1,3 @@
-// client/src/components/DataCleaning.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
@@ -14,31 +13,22 @@ export default function DataCleaning() {
   const [filename, setFilename] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     const fetchDataset = async () => {
       try {
         const res = await fetch(`/api/datasets/${id}`, {
-          method: "GET",
           credentials: "include",
         });
-        if (res.status === 401) {
-          navigate("/login");
-          return;
-        }
-        if (res.status === 404) {
-          navigate("/datasets");
-          return;
-        }
-        if (!res.ok) {
-          throw new Error("Cannot load dataset");
-        }
+        if (res.status === 401) return navigate("/login");
+        if (res.status === 404) return navigate("/datasets");
+        if (!res.ok) throw new Error("Cannot load dataset");
         const data = await res.json();
         setRawData(data.raw_data);
         setFilename(data.filename);
       } catch (err) {
-        console.error(err);
-        setError("Failed to load dataset");
+        setError(err.message || "Failed to load dataset");
       } finally {
         setLoading(false);
       }
@@ -47,31 +37,44 @@ export default function DataCleaning() {
   }, [id, navigate]);
 
   const handlePreview = async () => {
+    setLoading(true);
     try {
       const res = await fetch(`/api/datasets/${id}/clean-preview`, {
         method: "POST",
         credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dataset_id: Number(id), operations: options }),
       });
-      if (res.status === 401) {
-        navigate("/login");
-        return;
-      }
-      if (!res.ok) {
-        throw new Error("Preview failed");
-      }
+      if (res.status === 401) return navigate("/login");
+      if (!res.ok) throw new Error("Preview failed");
       const data = await res.json();
       setBeforeStats(data.before_stats);
       setAfterStats(data.after_stats);
-      if (data.preview) {
-        setCleanedData(data.preview);
-      }
+      setCleanedData(data.preview || []);
     } catch (err) {
-      console.error(err);
-      alert("Preview failed");
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/datasets/${id}/save-cleaned`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataset_id: Number(id), cleaned: cleanedData }),
+      });
+      if (res.status === 401) return navigate("/login");
+      if (!res.ok) throw new Error("Save failed");
+      const saved = await res.json();
+      navigate(`/datasets/${saved.id}`);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -109,12 +112,8 @@ export default function DataCleaning() {
     </div>
   );
 
-  if (loading) {
-    return <div className="p-6">Loading…</div>;
-  }
-  if (error) {
-    return <div className="p-6 text-red-500">{error}</div>;
-  }
+  if (loading) return <div className="p-6">Loading…</div>;
+  if (error) return <div className="p-6 text-red-500">{error}</div>;
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-white shadow rounded">
@@ -124,7 +123,10 @@ export default function DataCleaning() {
       <p className="text-gray-700 mb-6">
         File: <span className="font-medium">{filename}</span>
       </p>
+
+      {/* Options Panel */}
       <div className="grid gap-4 mb-6">
+        {/* Missing Value Strategy */}
         <div>
           <label className="block font-medium">Missing Value Strategy</label>
           <select
@@ -134,68 +136,119 @@ export default function DataCleaning() {
                 fillna_strategy: e.target.value,
               }))
             }
+            value={options.fillna_strategy || ""}
             className="mt-1 block w-full rounded border border-gray-300 px-3 py-2"
           >
             <option value="">-- Choose --</option>
-            <option value="mean">Fill with Mean</option>
-            <option value="median">Fill with Median</option>
-            <option value="mode">Fill with Mode</option>
-            <option value="zero">Fill with 0</option>
+            <option value="mean">Mean</option>
+            <option value="median">Median</option>
+            <option value="mode">Mode</option>
+            <option value="zero">Zero</option>
           </select>
         </div>
-
+        {/* Scaling */}
         <div>
           <label className="block font-medium">Scaling</label>
           <select
             onChange={(e) =>
               setOptions((prev) => ({ ...prev, scale: e.target.value }))
             }
+            value={options.scale || ""}
             className="mt-1 block w-full rounded border border-gray-300 px-3 py-2"
           >
             <option value="">-- Choose --</option>
-            <option value="normalize">Normalize (Min-Max)</option>
-            <option value="standardize">Standardize (Z-score)</option>
+            <option value="normalize">Min-Max</option>
+            <option value="standardize">Z-score</option>
           </select>
         </div>
-
+        {/* Encoding */}
         <div>
           <label className="block font-medium">Categorical Encoding</label>
           <select
             onChange={(e) =>
               setOptions((prev) => ({ ...prev, encoding: e.target.value }))
             }
+            value={options.encoding || ""}
             className="mt-1 block w-full rounded border border-gray-300 px-3 py-2"
           >
             <option value="">-- Choose --</option>
-            <option value="onehot">One-Hot Encoding</option>
-            <option value="label">Label Encoding</option>
+            <option value="onehot">One-Hot</option>
+            <option value="label">Label</option>
           </select>
         </div>
-
-        <div>
-          <label className="inline-flex items-center">
-            <input
-              type="checkbox"
-              className="mr-2"
-              onChange={(e) =>
-                setOptions((prev) => ({
-                  ...prev,
-                  lowercase_headers: e.target.checked,
-                }))
-              }
-            />
-            Convert column names to lowercase
+        {/* Lowercase Columns */}
+        <div className="flex items-center">
+          <input
+            type="checkbox"
+            id="lowercase_headers"
+            checked={options.lowercase_headers || false}
+            onChange={(e) =>
+              setOptions((prev) => ({
+                ...prev,
+                lowercase_headers: e.target.checked,
+              }))
+            }
+            className="mr-2"
+          />
+          <label htmlFor="lowercase_headers" className="font-medium">
+            Lowercase Headers
+          </label>
+        </div>
+        {/* Drop NA */}
+        <div className="flex items-center">
+          <input
+            type="checkbox"
+            id="dropna"
+            checked={options.dropna || false}
+            onChange={(e) =>
+              setOptions((prev) => ({ ...prev, dropna: e.target.checked }))
+            }
+            className="mr-2"
+          />
+          <label htmlFor="dropna" className="font-medium">
+            Drop Rows with NA
+          </label>
+        </div>
+        {/* Remove Duplicates */}
+        <div className="flex items-center">
+          <input
+            type="checkbox"
+            id="remove_duplicates"
+            checked={options.remove_duplicates || false}
+            onChange={(e) =>
+              setOptions((prev) => ({
+                ...prev,
+                remove_duplicates: e.target.checked,
+              }))
+            }
+            className="mr-2"
+          />
+          <label htmlFor="remove_duplicates" className="font-medium">
+            Remove Duplicate Rows
           </label>
         </div>
       </div>
 
-      <button
-        onClick={handlePreview}
-        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500"
-      >
-        Preview Cleaning
-      </button>
+      {/* Preview & Apply Buttons */}
+      <div className="flex space-x-4 mb-6">
+        <button
+          onClick={handlePreview}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 disabled:opacity-50"
+        >
+          Preview Cleaning
+        </button>
+        {beforeStats && afterStats && (
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-500 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save Cleaned CSV"}
+          </button>
+        )}
+      </div>
 
+      {/* Stats Comparison */}
       {beforeStats && afterStats && (
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
@@ -209,7 +262,8 @@ export default function DataCleaning() {
         </div>
       )}
 
-      {Array.isArray(cleanedData) && cleanedData.length > 0 && (
+      {/* Cleaned Data Preview */}
+      {cleanedData.length > 0 && (
         <div className="mt-6">
           <h3 className="text-xl font-semibold mb-2">Cleaned Data Preview</h3>
           <div className="overflow-auto bg-gray-50 p-4 rounded">

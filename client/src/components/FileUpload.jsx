@@ -19,27 +19,66 @@ export default function FileUpload() {
   };
 
   /* ------------- upload ------------------ */
+  // const handleSubmit = async (e) => {
+  //   e.preventDefault();
+  //   if (!file) return;
+
+  //   // We no longer read token from localStorage because we use HttpOnly cookie.
+  //   const formData = new FormData();
+  //   formData.append("file", file);
+
+  //   try {
+  //     const res = await fetch("/api/upload-csv", {
+  //       method: "POST",
+  //       credentials: "include", // send HttpOnly cookie
+  //       body: formData,
+  //     });
+
+  //     if (!res.ok) {
+  //       if (res.status === 401) {
+  //         throw new Error("Not authenticated – please log in again.");
+  //       }
+  //       const errPayload = await res.json().catch(() => ({}));
+  //       throw new Error(errPayload.detail ?? "Upload failed");
+  //     }
+
+  //     const data = await res.json();
+  //     setInsights(data);
+  //     setPreview(data.preview);
+  //     setRecords(data.records);
+  //     setS3Key(data.s3_key);
+  //     setError(null);
+  //   } catch (err) {
+  //     console.error(err);
+  //     setError(err.message);
+  //     setSuccess(null);
+  //   }
+  // };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!file) return;
+    if (!file) {
+      setError("Please select a file");
+      return;
+    }
 
-    // We no longer read token from localStorage because we use HttpOnly cookie.
     const formData = new FormData();
     formData.append("file", file);
 
     try {
       const res = await fetch("/api/upload-csv", {
         method: "POST",
-        credentials: "include", // send HttpOnly cookie
+        credentials: "include",
         body: formData,
       });
 
       if (!res.ok) {
-        if (res.status === 401) {
-          throw new Error("Not authenticated – please log in again.");
+        if (res.status === 401) throw new Error("Please log in again");
+        if (res.status === 400) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || "Invalid CSV file");
         }
-        const errPayload = await res.json().catch(() => ({}));
-        throw new Error(errPayload.detail ?? "Upload failed");
+        throw new Error("Upload failed");
       }
 
       const data = await res.json();
