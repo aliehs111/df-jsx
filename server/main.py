@@ -21,6 +21,7 @@ load_dotenv()  # load .env first
 import pandas as pd
 import numpy as np
 import matplotlib
+import math
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -72,6 +73,16 @@ s3 = get_s3()
 def custom_generate_unique_id(route: APIRoute):
     tag = route.tags[0] if route.tags else "default"
     return f"{tag}_{route.name}"
+
+
+# -- for cleaned datasets
+def sanitize_floats(o):
+    if isinstance(o, dict):
+        return {k: sanitize_floats(v) for k, v in o.items()}
+    if isinstance(o, float):
+        # turn any NaN or Infinity into None
+        return None if (math.isnan(o) or math.isinf(o)) else o
+    return o
 
 
 # --- Create FastAPI app with custom ID function
@@ -381,6 +392,23 @@ def get_db():
         db.close()
 
 
+class CleanOps(BaseModel):
+    dropna: bool = False
+    fillna_strategy: str | None = None  # "mean","median","mode","zero"
+    lowercase_headers: bool = False
+    remove_duplicates: bool = False
+
+
+class PreprocessOps(BaseModel):
+    scale: str | None = None  # "normalize","standardize"
+    encoding: str | None = None  # "onehot","label"
+
+
+class ProcessRequest(BaseModel):
+    clean: CleanOps
+    preprocess: PreprocessOps
+
+
 @app.post(
     "/api/datasets/{dataset_id}/process",
     dependencies=[Depends(current_user)],
@@ -394,17 +422,29 @@ async def process_dataset(
     ds = await db.get(DatasetModel, dataset_id)
     if not ds:
         raise HTTPException(404, "Dataset not found")
-
     df = pd.DataFrame(ds.raw_data)
 
     # ─── Cleaning ───────────────────────────────────────────────────
     ops = payload.clean
+
     if ops.dropna:
         df = df.dropna()
-    for col, val in ops.fillna.items():
-        df[col] = df[col].fillna(val)
+
+    if ops.fillna_strategy:
+        strat = ops.fillna_strategy
+        if strat == "mean":
+            df = df.fillna(df.mean(numeric_only=True))
+        elif strat == "median":
+            df = df.fillna(df.median(numeric_only=True))
+        elif strat == "mode":
+            modes = df.mode(dropna=True).iloc[0].to_dict()
+            df = df.fillna(modes)
+        elif strat == "zero":
+            df = df.fillna(0)
+
     if ops.lowercase_headers:
         df.columns = [c.lower() for c in df.columns]
+
     if ops.remove_duplicates:
         df = df.drop_duplicates()
 
@@ -417,53 +457,42 @@ async def process_dataset(
     # ─── Preprocessing ──────────────────────────────────────────────
     norm_params = {}
     if payload.preprocess.scale in {"normalize", "standardize"}:
-        for c in df.select_dtypes("number"):
+        for c in df.select_dtypes(include="number").columns:
             if payload.preprocess.scale == "normalize":
                 mn, mx = df[c].min(), df[c].max()
                 norm_params[c] = {"min": mn, "max": mx}
                 if mx != mn:
                     df[c] = (df[c] - mn) / (mx - mn)
-            else:  # standardize
+            else:
                 mean, std = df[c].mean(), df[c].std()
                 norm_params[c] = {"mean": mean, "std": std}
                 if std:
                     df[c] = (df[c] - mean) / std
 
+    # ─── sanitize before storing ─────────────────────────────
+    norm_params = sanitize_floats(norm_params)
     cat_maps = {}
     if payload.preprocess.encoding == "label":
         from sklearn.preprocessing import LabelEncoder
 
-        for c in df.select_dtypes("object"):
+        for c in df.select_dtypes(include="object").columns:
             le = LabelEncoder().fit(df[c].fillna(""))
             cat_maps[c] = dict(zip(le.classes_, le.transform(le.classes_)))
             df[c] = le.transform(df[c].fillna(""))
     elif payload.preprocess.encoding == "onehot":
-        for c in df.select_dtypes("object"):
+        for c in df.select_dtypes(include="object").columns:
             cols = df[c].fillna("").unique().tolist()
             cat_maps[c] = cols
         df = pd.get_dummies(df, columns=list(cat_maps.keys()), dummy_na=False)
 
     # ─── Persist in DB and S3 ───────────────────────────────────────
-    # Convert every nested  into plain Python
-    cleaned_records = _to_py(df.to_dict(orient="records"))
-    norm_py = _to_py(norm_params)
-    cat_py = _to_py(cat_maps)
-
-    # quick debug to verify types
-    print(
-        "DEBUG types:",
-        "cleaned_records[0] types:",
-        {k: type(v) for k, v in cleaned_records[0].items()},
-        "norm_py types:",
-        {k: type(v["min"]) for k, v in norm_py.items()} if norm_py else {},
-        "cat_py types:",
-        {k: type(v) for k, v in cat_py.items()},
-    )
-
+    ds.normalization_params = norm_params
+    cleaned_records = df.to_dict(orient="records")
+    # Save into your DatasetModel fields:
     ds.column_renames = renames
     ds.cleaned_data = cleaned_records
-    ds.normalization_params = norm_py
-    ds.categorical_mappings = cat_py
+    ds.normalization_params = norm_params
+    ds.categorical_mappings = cat_maps
 
     buf = io.StringIO()
     df.to_csv(buf, index=False)
@@ -473,12 +502,7 @@ async def process_dataset(
     await db.commit()
     await db.refresh(ds)
 
-    return {
-        "s3_key": key,
-        "column_renames": renames,
-        "normalization_params": norm_py,
-        "categorical_mappings": cat_py,
-    }
+    return {"id": ds.id, "s3_key": key}
 
 
 @app.get(

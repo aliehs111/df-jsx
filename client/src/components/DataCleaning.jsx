@@ -61,18 +61,39 @@ export default function DataCleaning() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      const res = await fetch(`/api/datasets/${id}/save-cleaned`, {
+      const payload = {
+        clean: {
+          dropna: options.dropna || false,
+          fillna_strategy: options.fillna_strategy || "",
+          lowercase_headers: options.lowercase_headers || false,
+          remove_duplicates: options.remove_duplicates || false,
+        },
+        preprocess: {
+          scale: options.scale || "",
+          encoding: options.encoding || "",
+        },
+      };
+
+      const res = await fetch(`/api/datasets/${id}/process`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataset_id: Number(id), cleaned: cleanedData }),
+        body: JSON.stringify(payload),
       });
-      if (res.status === 401) return navigate("/login");
-      if (!res.ok) throw new Error("Save failed");
-      const saved = await res.json();
-      navigate(`/datasets/${saved.id}`);
+
+      if (res.status === 401) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) {
+        const err = await res.text().catch(() => "Save failed");
+        throw new Error(err);
+      }
+
+      const { id: newId } = await res.json();
+      navigate(`/datasets/${newId}`);
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     } finally {
       setSaving(false);
     }
@@ -282,7 +303,7 @@ export default function DataCleaning() {
                   <tr key={i} className="hover:bg-gray-100">
                     {Object.values(row).map((val, j) => (
                       <td key={j} className="border px-2 py-1">
-                        {val}
+                        {val === null || val === undefined ? "" : String(val)}
                       </td>
                     ))}
                   </tr>

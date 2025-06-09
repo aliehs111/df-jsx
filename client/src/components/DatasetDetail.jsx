@@ -187,12 +187,12 @@ export default function DatasetDetail() {
           Pipeline Sandbox
         </Link>
 
-        <Link
+        {/* <Link
           to={`/datasets/${id}/process`}
           className="bg-blue-800 text-white px-4 py-2 rounded hover:bg-indigo-500"
         >
           Preprocess
-        </Link>
+        </Link> */}
         <Link
           to="/chat"
           className="
