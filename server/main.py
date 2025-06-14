@@ -27,11 +27,19 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 from fastapi.encoders import jsonable_encoder
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, status
+from fastapi import (
+    FastAPI,
+    File,
+    UploadFile,
+    Depends,
+    HTTPException,
+    status,
+    Query,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.requests import Request
 from botocore.exceptions import ClientError
 
@@ -39,6 +47,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import BaseModel
+
+from starlette.responses import StreamingResponse
+from io import BytesIO
 
 # ---------- Local / project ----------
 from server.aws_client import get_s3, upload_bytes, S3_BUCKET
@@ -292,22 +303,32 @@ async def get_dataset(
 )
 async def get_dataset_insights(
     dataset_id: int,
+    which: str = Query("raw", regex="^(raw|cleaned)$"),
     db: AsyncSession = Depends(get_async_db),
 ):
-    # fetch the saved raw_data
+    # fetch the saved dataset
     ds = await db.get(DatasetModel, dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    # build a DataFrame
-    df = pd.DataFrame(ds.raw_data)
+    # pick raw vs. cleaned
+    if which == "cleaned":
+        if not ds.cleaned_data:
+            raise HTTPException(
+                status_code=400, detail="No cleaned data available for this dataset"
+            )
+        data = ds.cleaned_data
+    else:
+        data = ds.raw_data
+
+    # build DataFrame
+    df = pd.DataFrame(data)
 
     # run df.info()
     buf = io.StringIO()
     df.info(buf=buf)
     info_output = buf.getvalue()
 
-    # assemble exactly the same insights shape as /upload-csv
     return {
         "preview": df.head().to_dict(orient="records"),
         "shape": list(df.shape),
@@ -538,13 +559,36 @@ async def get_heatmap(dataset_id: int, db: AsyncSession = Depends(get_async_db))
 
     df = pd.DataFrame(obj.raw_data)
 
-    plt.figure(figsize=(10, 8))
-    sns.heatmap(df.corr(numeric_only=True), annot=True, cmap="coolwarm", fmt=".2f")
-    buf = io.BytesIO()
-    plt.savefig(buf, format="png", bbox_inches="tight")
-    buf.seek(0)
-    plt.close()
+    # 1) Keep only numeric columns
+    numeric_df = df.select_dtypes(include=[np.number])
 
+    # 2) If fewer than two numeric columns, return a 400 with a message
+    if numeric_df.shape[1] < 2:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Not enough numeric data to generate a heatmap. "
+                "Please select a dataset with at least two numeric columns."
+            },
+        )
+
+    # 3) (Optional) Cap to a reasonable number of features
+    MAX_FEATURES = 50
+    if numeric_df.shape[1] > MAX_FEATURES:
+        top_cols = numeric_df.var().sort_values(ascending=False).index[:MAX_FEATURES]
+        numeric_df = numeric_df[top_cols]
+
+    # 4) Compute and plot
+    corr = numeric_df.corr()
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", ax=ax)
+    buf = io.BytesIO()
+    fig.tight_layout()
+    fig.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+
+    # 5) Encode and return
     img_b64 = base64.b64encode(buf.read()).decode()
     return {"plot": f"data:image/png;base64,{img_b64}"}
 
