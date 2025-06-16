@@ -9,6 +9,7 @@ export default function DataCleaning() {
   const [cleanedData, setCleanedData] = useState([]);
   const [beforeStats, setBeforeStats] = useState(null);
   const [afterStats, setAfterStats] = useState(null);
+  const [alerts, setAlerts] = useState([]); // New state for alerts
   const [options, setOptions] = useState({});
   const [filename, setFilename] = useState("");
   const [loading, setLoading] = useState(true);
@@ -38,6 +39,7 @@ export default function DataCleaning() {
 
   const handlePreview = async () => {
     setLoading(true);
+    setAlerts([]); // Clear previous alerts
     try {
       const res = await fetch(`/api/datasets/${id}/clean-preview`, {
         method: "POST",
@@ -50,9 +52,11 @@ export default function DataCleaning() {
       const data = await res.json();
       setBeforeStats(data.before_stats);
       setAfterStats(data.after_stats);
-      setCleanedData(data.preview || []);
+      setAlerts(data.alerts || []); // Set alerts from response
+      // Use rawData as a fallback since preview is not provided
+      setCleanedData(data.preview || rawData.slice(0, 5));
     } catch (err) {
-      alert(err.message);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -60,25 +64,17 @@ export default function DataCleaning() {
 
   const handleSave = async () => {
     setSaving(true);
+    setAlerts([]); // Clear previous alerts
     try {
-      const payload = {
-        clean: {
-          dropna: options.dropna || false,
-          fillna_strategy: options.fillna_strategy || "",
-          lowercase_headers: options.lowercase_headers || false,
-          remove_duplicates: options.remove_duplicates || false,
-        },
-        preprocess: {
-          scale: options.scale || "",
-          encoding: options.encoding || "",
-        },
-      };
-
-      const res = await fetch(`/api/datasets/${id}/process`, {
+      const res = await fetch(`/api/datasets/${id}/clean-preview`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          dataset_id: Number(id),
+          operations: options,
+          save: true, // Trigger save in the backend
+        }),
       });
 
       if (res.status === 401) {
@@ -90,8 +86,13 @@ export default function DataCleaning() {
         throw new Error(err);
       }
 
-      const { id: newId } = await res.json();
-      navigate(`/datasets/${newId}`);
+      const data = await res.json();
+      setAlerts(data.alerts || []); // Update alerts
+      if (data.saved) {
+        navigate(`/datasets/${id}`); // Navigate back to dataset view
+      } else {
+        throw new Error("Save operation did not complete");
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -144,6 +145,18 @@ export default function DataCleaning() {
       <p className="text-gray-700 mb-6">
         File: <span className="font-medium">{filename}</span>
       </p>
+
+      {/* Alerts Display */}
+      {alerts.length > 0 && (
+        <div className="mb-6 bg-yellow-100 border-l-4 border-yellow-500 p-4">
+          <h3 className="font-semibold text-yellow-800">Warnings</h3>
+          <ul className="list-disc pl-5 text-yellow-700">
+            {alerts.map((alert, index) => (
+              <li key={index}>{alert}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Options Panel */}
       <div className="grid gap-4 mb-6">
@@ -255,16 +268,17 @@ export default function DataCleaning() {
         <button
           onClick={handlePreview}
           className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 disabled:opacity-50"
+          disabled={loading}
         >
           Preview Cleaning
         </button>
         {beforeStats && afterStats && (
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || alerts.length > 0} // Disable save if there are alerts
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-500 disabled:opacity-50"
           >
-            {saving ? "Saving…" : "Save Cleaned CSV"}
+            {saving ? "Saving…" : "Save Cleaned Dataset"}
           </button>
         )}
       </div>

@@ -630,7 +630,9 @@ async def preview_cleaning(
 ):
     dataset_id = data.get("dataset_id")
     operations = data.get("operations", {})
+    save_dataset = data.get("save", False)  # Flag to save cleaned dataset
 
+    # Fetch dataset
     stmt = select(DatasetModel).filter(DatasetModel.id == dataset_id)
     result = await db.execute(stmt)
     dataset = result.scalars().first()
@@ -639,6 +641,7 @@ async def preview_cleaning(
 
     df = pd.DataFrame(dataset.raw_data)
     df_cleaned = df.copy()
+    alerts = []  # Store alerts for invalid operations
 
     # --- Before Stats ---
     before = {
@@ -656,6 +659,14 @@ async def preview_cleaning(
     if strategy in {"mean", "median", "mode"}:
         for col in df_cleaned.columns:
             if df_cleaned[col].isnull().any():
+                # Check if column is numeric for mean/median
+                if strategy in {"mean", "median"} and not pd.api.types.is_numeric_dtype(
+                    df_cleaned[col]
+                ):
+                    alerts.append(
+                        f"Cannot apply {strategy} fillna to non-numeric column '{col}'"
+                    )
+                    continue
                 if strategy == "mean":
                     df_cleaned[col] = df_cleaned[col].fillna(df_cleaned[col].mean())
                 elif strategy == "median":
@@ -670,19 +681,37 @@ async def preview_cleaning(
     # --- Scale Data ---
     scale_method = operations.get("scale")
     numeric_cols = df_cleaned.select_dtypes(include="number").columns
+    cat_cols = df_cleaned.select_dtypes(include=["object", "category"]).columns
 
-    if scale_method == "normalize":
-        for col in numeric_cols:
-            min_val = df_cleaned[col].min()
-            max_val = df_cleaned[col].max()
-            if min_val != max_val:
-                df_cleaned[col] = (df_cleaned[col] - min_val) / (max_val - min_val)
-    elif scale_method == "standardize":
-        for col in numeric_cols:
-            mean = df_cleaned[col].mean()
-            std = df_cleaned[col].std()
-            if std > 0:
-                df_cleaned[col] = (df_cleaned[col] - mean) / std
+    if scale_method in {"normalize", "standardize"}:
+        # Check if scaling is attempted on categorical columns
+        if operations.get("encoding") is None and len(cat_cols) > 0:
+            alerts.append(
+                f"Cannot apply {scale_method} scaling to categorical columns {list(cat_cols)}. "
+                "Please encode categorical variables first (e.g., onehot or label encoding)."
+            )
+        else:
+            for col in numeric_cols:
+                if scale_method == "normalize":
+                    min_val = df_cleaned[col].min()
+                    max_val = df_cleaned[col].max()
+                    if min_val != max_val:
+                        df_cleaned[col] = (df_cleaned[col] - min_val) / (
+                            max_val - min_val
+                        )
+                    else:
+                        alerts.append(
+                            f"Cannot normalize column '{col}' (min equals max)"
+                        )
+                elif scale_method == "standardize":
+                    mean = df_cleaned[col].mean()
+                    std = df_cleaned[col].std()
+                    if std > 0:
+                        df_cleaned[col] = (df_cleaned[col] - mean) / std
+                    else:
+                        alerts.append(
+                            f"Cannot standardize column '{col}' (standard deviation is zero)"
+                        )
 
     # --- Encode Categorical Variables ---
     encoding = operations.get("encoding")
@@ -690,14 +719,15 @@ async def preview_cleaning(
         cat_cols = df_cleaned.select_dtypes(
             include=["object", "category"]
         ).columns.tolist()
-        if encoding == "onehot":
-            df_cleaned = pd.get_dummies(df_cleaned, columns=cat_cols)
-        elif encoding == "label":
-            from sklearn.preprocessing import LabelEncoder
-
-            for col in cat_cols:
-                le = LabelEncoder()
-                df_cleaned[col] = le.fit_transform(df_cleaned[col])
+        if not cat_cols:
+            alerts.append("No categorical columns to encode.")
+        else:
+            if encoding == "onehot":
+                df_cleaned = pd.get_dummies(df_cleaned, columns=cat_cols)
+            elif encoding == "label":
+                for col in cat_cols:
+                    le = LabelEncoder()
+                    df_cleaned[col] = le.fit_transform(df_cleaned[col])
 
     # --- After Stats ---
     after = {
@@ -706,10 +736,23 @@ async def preview_cleaning(
         "dtypes": df_cleaned.dtypes.astype(str).to_dict(),
     }
 
-    return {
+    # --- Save Dataset (Optional) ---
+    if save_dataset:
+        dataset.raw_data = df_cleaned.to_dict(orient="records")
+        await db.commit()
+        await db.refresh(dataset)
+
+    # --- Return Response ---
+    response = {
         "before_stats": before,
         "after_stats": after,
+        "alerts": alerts,
     }
+
+    if save_dataset:
+        response["saved"] = True
+
+    return response
 
 
 @app.get("/api/plot")

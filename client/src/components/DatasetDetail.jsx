@@ -88,7 +88,11 @@ export default function DatasetDetail() {
       alert("Could not download cleaned data.");
     }
   };
-
+  function renderCell(value) {
+    if (typeof value === "boolean") return value ? "True" : "False";
+    if (value === null || value === undefined) return "";
+    return value;
+  }
   if (loading) return <div className="p-6">Loading…</div>;
   if (error) return <div className="p-6 text-red-500">{error}</div>;
 
@@ -129,7 +133,7 @@ export default function DatasetDetail() {
                   <tr key={i}>
                     {Object.values(row).map((v, j) => (
                       <td key={j} className="px-1 py-0.5 whitespace-nowrap">
-                        {v}
+                        {renderCell(v)}
                       </td>
                     ))}
                   </tr>
@@ -182,7 +186,7 @@ export default function DatasetDetail() {
                     <tr key={i}>
                       {Object.values(row).map((v, j) => (
                         <td key={j} className="px-1 py-0.5 whitespace-nowrap">
-                          {v}
+                          {renderCell(v)}
                         </td>
                       ))}
                     </tr>
