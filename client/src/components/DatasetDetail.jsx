@@ -10,6 +10,8 @@ export default function DatasetDetail() {
   const navigate = useNavigate();
 
   const [dataset, setDataset] = useState(null);
+  const [cleanedPreview, setCleanedPreview] = useState(null);
+  const [cleanedPreviewError, setCleanedPreviewError] = useState(null); // New state for errors
   const [heatmapUrl, setHeatmapUrl] = useState(null);
   const [heatmapError, setHeatmapError] = useState("");
   const [insights, setInsights] = useState(null);
@@ -17,8 +19,7 @@ export default function DatasetDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const hasClean =
-    Array.isArray(dataset?.cleaned_data) && dataset.cleaned_data.length > 0;
+  const hasClean = dataset?.has_cleaned_data || false;
 
   useEffect(() => {
     const fetchDataset = async () => {
@@ -29,7 +30,31 @@ export default function DatasetDetail() {
         if (res.status === 401) return navigate("/login");
         if (res.status === 404) return navigate("/datasets");
         if (!res.ok) throw new Error(`Error ${res.status}`);
-        setDataset(await res.json());
+        const data = await res.json();
+        setDataset(data);
+
+        // Fetch cleaned data preview if s3_key_cleaned exists
+        if (data.s3_key_cleaned && data.has_cleaned_data) {
+          try {
+            const cleanRes = await fetch(
+              `/api/datasets/${id}/insights?which=cleaned`,
+              {
+                credentials: "include",
+              }
+            );
+            if (!cleanRes.ok) {
+              const err = await cleanRes
+                .json()
+                .catch(() => ({ detail: "Failed to load cleaned data" }));
+              throw new Error(err.detail || `Error ${cleanRes.status}`);
+            }
+            const cleanData = await cleanRes.json();
+            setCleanedPreview(cleanData.preview);
+          } catch (err) {
+            setCleanedPreviewError(err.message);
+            console.error("Failed to load cleaned preview:", err);
+          }
+        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -88,11 +113,13 @@ export default function DatasetDetail() {
       alert("Could not download cleaned data.");
     }
   };
+
   function renderCell(value) {
     if (typeof value === "boolean") return value ? "True" : "False";
     if (value === null || value === undefined) return "";
     return value;
   }
+
   if (loading) return <div className="p-6">Loading…</div>;
   if (error) return <div className="p-6 text-red-500">{error}</div>;
 
@@ -121,23 +148,36 @@ export default function DatasetDetail() {
             <table className="min-w-full">
               <thead>
                 <tr>
-                  {Object.keys(dataset.raw_data[0] || {}).map((col) => (
-                    <th key={col} className="px-1 py-0.5 font-medium text-left">
-                      {col}
-                    </th>
-                  ))}
+                  {dataset.preview_data && dataset.preview_data.length > 0 ? (
+                    Object.keys(dataset.preview_data[0] || {}).map((col) => (
+                      <th
+                        key={col}
+                        className="px-1 py-0.5 font-medium text-left"
+                      >
+                        {col}
+                      </th>
+                    ))
+                  ) : (
+                    <th>No data available</th>
+                  )}
                 </tr>
               </thead>
               <tbody>
-                {dataset.raw_data.slice(0, 3).map((row, i) => (
-                  <tr key={i}>
-                    {Object.values(row).map((v, j) => (
-                      <td key={j} className="px-1 py-0.5 whitespace-nowrap">
-                        {renderCell(v)}
-                      </td>
-                    ))}
+                {dataset.preview_data && dataset.preview_data.length > 0 ? (
+                  dataset.preview_data.slice(0, 3).map((row, i) => (
+                    <tr key={i}>
+                      {Object.values(row).map((v, j) => (
+                        <td key={j} className="px-1 py-0.5 whitespace-nowrap">
+                          {renderCell(v)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td>No data available</td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
@@ -167,32 +207,51 @@ export default function DatasetDetail() {
         {hasClean && (
           <div className="p-4 border rounded">
             <h4 className="font-semibold mb-2">Cleaned Data Preview</h4>
-            <div className="overflow-auto text-xs	bg-gray-100	p-2 rounded mb-4 max-h-40">
-              <table className="min-w-full">
-                <thead>
-                  <tr>
-                    {Object.keys(dataset.cleaned_data[0] || {}).map((col) => (
-                      <th
-                        key={col}
-                        className="px-1 py-0.5 font-medium text-left"
-                      >
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {dataset.cleaned_data.slice(0, 3).map((row, i) => (
-                    <tr key={i}>
-                      {Object.values(row).map((v, j) => (
-                        <td key={j} className="px-1 py-0.5 whitespace-nowrap">
-                          {renderCell(v)}
-                        </td>
-                      ))}
+            <div className="overflow-auto text-xs bg-gray-100 p-2 rounded mb-4 max-h-40">
+              {cleanedPreviewError ? (
+                <div className="text-red-600">
+                  Error loading cleaned data: {cleanedPreviewError}
+                </div>
+              ) : (
+                <table className="min-w-full">
+                  <thead>
+                    <tr>
+                      {cleanedPreview && cleanedPreview.length > 0 ? (
+                        Object.keys(cleanedPreview[0] || {}).map((col) => (
+                          <th
+                            key={col}
+                            className="px-1 py-0.5 font-medium text-left"
+                          >
+                            {col}
+                          </th>
+                        ))
+                      ) : (
+                        <th>No cleaned data available</th>
+                      )}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {cleanedPreview && cleanedPreview.length > 0 ? (
+                      cleanedPreview.slice(0, 3).map((row, i) => (
+                        <tr key={i}>
+                          {Object.values(row).map((v, j) => (
+                            <td
+                              key={j}
+                              className="px-1 py-0.5 whitespace-nowrap"
+                            >
+                              {renderCell(v)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td>No cleaned data available</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
             <div className="flex space-x-2">
               <button

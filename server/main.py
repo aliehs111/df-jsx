@@ -11,20 +11,28 @@ from pathlib import Path
 import io
 import base64
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 # ---------- Third-party ----------
 from dotenv import load_dotenv
 
+
 load_dotenv()  # load .env first
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+import json
 import pandas as pd
 import numpy as np
 import matplotlib
 import math
+from sklearn.preprocessing import LabelEncoder
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
 import seaborn as sns
 from fastapi.encoders import jsonable_encoder
 from fastapi import (
@@ -42,8 +50,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.requests import Request
 from botocore.exceptions import ClientError
+from fastapi import status
 
-from sqlalchemy import select
+from sqlalchemy import select, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pydantic import BaseModel
@@ -52,12 +61,21 @@ from starlette.responses import StreamingResponse
 from io import BytesIO
 
 # ---------- Local / project ----------
+from server.schemas import DatasetCreate
+
 from server.aws_client import get_s3, upload_bytes, S3_BUCKET
 from server.database import get_async_db, engine, AsyncSessionLocal
 from server.models import Dataset as DatasetModel
 from server.models import Base
 import server.schemas as schemas
-import server.schemas as schemas
+from server.schemas import (
+    ProcessRequest,
+    CleanOps,
+    PreprocessOps,
+    DownloadURLResponse,
+    CleanPreviewRequest,
+)
+
 from server.auth.userroutes import router as user_router, fastapi_users
 from server.auth.userbase import User
 from server.auth.userroutes import current_user
@@ -144,43 +162,6 @@ async def on_startup():
     await init_models()
 
 
-# @app.post("/api/upload-csv", dependencies=[Depends(current_user)])
-# async def upload_csv(file: UploadFile = File(...)):
-#     # 1️⃣ read the bytes
-#     contents = await file.read()
-
-#     # 2️⃣ push to S3  (helper imported from aws_client.py)
-#     s3_key = upload_bytes(contents, file.filename)  # <-- NEW
-
-#     # 3️⃣ DataFrame / preview
-#     df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
-
-#     buf = io.StringIO()
-#     df.info(buf=buf)
-#     info_output = buf.getvalue()
-
-#     # build a “safe” summary_stats
-#     summary = df.describe(include="all")
-#     # replace infinities with NaN, then turn all NaNs into empty string (or null)
-#     summary = summary.replace([np.inf, -np.inf], np.nan).fillna("")
-#     summary_dict = summary.astype(str).to_dict()  # cast every cell to string
-
-#     insights = {
-#         "preview": df.head().to_dict(orient="records"),
-#         "records": df.to_dict(orient="records"),
-#         "shape": list(df.shape),
-#         "columns": df.columns.tolist(),
-#         "dtypes": df.dtypes.astype(str).to_dict(),
-#         "null_counts": df.isnull().sum().to_dict(),
-#         "summary_stats": df.describe(include="all").fillna("").to_dict(),
-#         "info_output": info_output,
-#         "s3_key": s3_key,  # <-- NEW
-#     }
-
-#     # ensure all numpy types are finally plain Python
-#     return jsonable_encoder(insights)
-
-
 @app.post("/api/upload-csv", dependencies=[Depends(current_user)])
 async def upload_csv(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
@@ -203,9 +184,17 @@ async def upload_csv(file: UploadFile = File(...)):
     info_output = buf.getvalue()
 
     summary = df.describe(include="all").replace([np.inf, -np.inf], np.nan).fillna("")
+    column_metadata = {
+        col: {
+            "dtype": str(df[col].dtype),
+            "n_unique": int(df[col].nunique()),
+            "null_count": int(df[col].isnull().sum()),
+        }
+        for col in df.columns
+    }
+
     insights = {
         "preview": df.head().to_dict(orient="records"),
-        "records": df.to_dict(orient="records"),
         "shape": list(df.shape),
         "columns": df.columns.tolist(),
         "dtypes": df.dtypes.astype(str).to_dict(),
@@ -213,36 +202,50 @@ async def upload_csv(file: UploadFile = File(...)):
         "summary_stats": summary.astype(str).to_dict(),
         "info_output": info_output,
         "s3_key": s3_key,
+        "s3_key_cleaned": None,
+        "column_metadata": column_metadata,
+        "n_rows": len(df),
+        "n_columns": len(df.columns),
+        "has_missing_values": bool(df.isnull().values.any()),  # Cast to Python bool
+        "has_cleaned_data": False,
     }
 
     return jsonable_encoder(insights)
 
 
-class DatasetCreate(BaseModel):
-    title: str
-    description: str
-    filename: str
-    raw_data: list[dict]
-    s3_key: str
-
-
 @app.post("/api/datasets/save", dependencies=[Depends(current_user)])
-async def save_dataset(
-    data: DatasetCreate, db: AsyncSession = Depends(get_async_db)
-):  # ✅ AsyncSession here
+async def save_dataset(data: DatasetCreate, db: AsyncSession = Depends(get_async_db)):
     try:
         dataset = DatasetModel(
             title=data.title,
             description=data.description,
             filename=data.filename,
-            raw_data=data.raw_data,
             s3_key=data.s3_key,
+            s3_key_cleaned=None,
+            categorical_mappings=data.categorical_mappings,
+            normalization_params=data.normalization_params,
+            column_renames=data.column_renames,
+            target_column=data.target_column,
+            selected_features=data.selected_features,
+            excluded_columns=data.excluded_columns,
+            feature_engineering_notes=data.feature_engineering_notes,
+            column_metadata=data.column_metadata,
+            n_rows=data.n_rows,
+            n_columns=data.n_columns,
+            has_missing_values=data.has_missing_values,
+            processing_log=(
+                " | ".join(data.processing_log) if data.processing_log else None
+            ),
+            current_stage=data.current_stage,
+            has_cleaned_data=False,
+            extra_json_1=data.extra_json_1,
+            extra_txt_1=data.extra_txt_1,
         )
 
         db.add(dataset)
-        await db.flush()  # ✦ 1. push to DB, id is generated
-        await db.refresh(dataset)  # ✦ 2. pull the PK back
-        await db.commit()  # ✦ 3. finalize transaction
+        await db.flush()
+        await db.refresh(dataset)
+        await db.commit()
 
         return {"id": dataset.id}
     except Exception as e:
@@ -256,19 +259,24 @@ async def save_dataset(
     dependencies=[Depends(current_user)],
 )
 async def list_datasets(db: AsyncSession = Depends(get_async_db)):
-    # only pull the lightweight fields, not the full JSON columns
-    stmt = select(
-        DatasetModel.id,
-        DatasetModel.title,
-        DatasetModel.description,
-        DatasetModel.filename,
-        DatasetModel.s3_key,
-        DatasetModel.uploaded_at,
-    ).order_by(DatasetModel.uploaded_at.desc())
-    result = await db.execute(stmt)
-    rows = result.all()  # a list of Row(id=…, title=…, …)
+    stmt = (
+        select(
+            DatasetModel.id,
+            DatasetModel.title,
+            DatasetModel.description,
+            DatasetModel.filename,
+            DatasetModel.s3_key,
+            DatasetModel.s3_key_cleaned,
+            DatasetModel.uploaded_at,
+            DatasetModel.has_cleaned_data,
+        )
+        .order_by(DatasetModel.uploaded_at.desc())
+        .limit(100)
+    )
 
-    # manually build your Pydantic summaries
+    result = await db.execute(stmt)
+    rows = result.fetchall()
+
     return [
         schemas.DatasetSummary(
             id=row.id,
@@ -276,7 +284,9 @@ async def list_datasets(db: AsyncSession = Depends(get_async_db)):
             description=row.description,
             filename=row.filename,
             s3_key=row.s3_key,
+            s3_key_cleaned=row.s3_key_cleaned,
             uploaded_at=row.uploaded_at,
+            has_cleaned_data=row.has_cleaned_data,
         )
         for row in rows
     ]
@@ -284,18 +294,102 @@ async def list_datasets(db: AsyncSession = Depends(get_async_db)):
 
 @app.get(
     "/api/datasets/{dataset_id}",
-    response_model=schemas.Dataset,  # Pydantic schema for a single dataset
+    response_model=schemas.DatasetOut,
     dependencies=[Depends(current_user)],
 )
 async def get_dataset(
     dataset_id: int,
     db: AsyncSession = Depends(get_async_db),
 ):
-    # now DatasetModel is defined
     row = await db.get(DatasetModel, dataset_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    return row  # FastAPI will convert it to DatasetSchema via orm_mode
+
+    # Fetch CSV preview from S3 if s3_key exists
+    preview_data = None
+    if row.s3_key:
+        try:
+            response = s3.get_object(Bucket=S3_BUCKET, Key=row.s3_key)
+            content = response["Body"].read()
+            encodings = ["utf-8", "iso-8859-1", "latin1", "cp1252"]
+            df = None
+            for encoding in encodings:
+                try:
+                    df = pd.read_csv(
+                        io.StringIO(content.decode(encoding, errors="replace"))
+                    )
+                    logger.info(f"Loaded CSV {row.s3_key} with encoding {encoding}")
+                    break
+                except Exception as e:
+                    logger.warning(
+                        f"Failed with encoding {encoding} for {row.s3_key}: {str(e)}"
+                    )
+            if df is None:
+                raise Exception("Failed to parse CSV with any encoding")
+
+            # Log raw data
+            logger.info(f"Dataset {dataset_id} columns: {df.columns.tolist()}")
+            logger.info(f"Dataset {dataset_id} dtypes: {df.dtypes.to_dict()}")
+            logger.info(
+                f"Dataset {dataset_id} head: {df.head(5).to_dict(orient='records')}"
+            )
+
+            # Sanitize preview data
+            def sanitize_value(val):
+                if isinstance(val, (np.floating, float)):
+                    if math.isnan(val) or math.isinf(val):
+                        return None
+                    return float(val)
+                if isinstance(val, (np.integer, int)):
+                    return int(val)
+                if isinstance(val, (np.bool_, bool)):
+                    return bool(val)
+                if isinstance(val, (pd.Timestamp, np.datetime64)):
+                    return str(val)
+                return str(val) if val is not None else None
+
+            preview_data = [
+                {k: sanitize_value(v) for k, v in record.items()}
+                for record in df.head(5).to_dict(orient="records")
+            ]
+        except Exception as e:
+            logger.error(
+                f"Failed to fetch or process S3 data for {row.s3_key}: {str(e)}"
+            )
+            alerts.append(f"Failed to load preview data: {str(e)}")
+
+    # Prepare response
+    response = schemas.DatasetOut(
+        id=row.id,
+        title=row.title,
+        description=row.description,
+        filename=row.filename,
+        s3_key=row.s3_key,
+        s3_key_cleaned=row.s3_key_cleaned,
+        uploaded_at=row.uploaded_at,
+        categorical_mappings=row.categorical_mappings,
+        normalization_params=row.normalization_params,
+        column_renames=row.column_renames,
+        target_column=row.target_column,
+        selected_features=row.selected_features,
+        excluded_columns=row.excluded_columns,
+        feature_engineering_notes=row.feature_engineering_notes,
+        column_metadata=row.column_metadata,
+        n_rows=row.n_rows,
+        n_columns=row.n_columns,
+        has_missing_values=row.has_missing_values,
+        processing_log=row.processing_log,
+        current_stage=row.current_stage,
+        has_cleaned_data=row.has_cleaned_data,
+        extra_json_1=row.extra_json_1,
+        extra_txt_1=row.extra_txt_1,
+        preview_data=preview_data,
+    )
+
+    # Log response
+    logger.info(f"Dataset {dataset_id} response: {jsonable_encoder(response)}")
+
+    return response
 
 
 @app.get(
@@ -305,43 +399,112 @@ async def get_dataset(
 async def get_dataset_insights(
     dataset_id: int,
     which: str = Query("raw", regex="^(raw|cleaned)$"),
+    limit: int = Query(5, ge=1, le=100),
     db: AsyncSession = Depends(get_async_db),
 ):
-    # fetch the saved dataset
+    # Fetch dataset
     ds = await db.get(DatasetModel, dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    # pick raw vs. cleaned
-    if which == "cleaned":
-        if not ds.cleaned_data:
+    # Pick raw vs. cleaned
+    s3_key = ds.s3_key if which == "raw" else ds.s3_key_cleaned
+    if which == "cleaned" and (not ds.has_cleaned_data or not ds.s3_key_cleaned):
+        logger.warning(
+            f"Dataset {dataset_id}: No cleaned data available (has_cleaned_data={ds.has_cleaned_data}, s3_key_cleaned={ds.s3_key_cleaned})"
+        )
+        raise HTTPException(
+            status_code=400, detail="No cleaned data available for this dataset"
+        )
+    if not s3_key:
+        logger.warning(
+            f"Dataset {dataset_id}: No {'raw' if which == 'raw' else 'cleaned'} data available"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"No {'raw' if which == 'raw' else 'cleaned'} data available for this dataset",
+        )
+
+    # Fetch CSV from S3
+    try:
+        response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+        content = response["Body"].read()
+        encodings = ["utf-8", "iso-8859-1", "latin1", "cp1252"]
+        df = None
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(
+                    io.StringIO(content.decode(encoding, errors="replace"))
+                )
+                logger.info(f"Loaded CSV {s3_key} with encoding {encoding}")
+                break
+            except Exception as e:
+                logger.warning(
+                    f"Failed with encoding {encoding} for {s3_key}: {str(e)}"
+                )
+        if df is None:
+            raise Exception("Failed to parse CSV with any encoding")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            logger.error(f"Dataset {dataset_id}: S3 key {s3_key} does not exist")
             raise HTTPException(
-                status_code=400, detail="No cleaned data available for this dataset"
+                status_code=400,
+                detail=f"No {'raw' if which == 'raw' else 'cleaned'} data file exists in S3",
             )
-        data = ds.cleaned_data
-    else:
-        data = ds.raw_data
+        logger.error(f"Failed to load CSV {s3_key} for dataset {dataset_id}: {str(e)}")
+        raise HTTPException(
+            status_code=400, detail=f"Failed to load CSV from S3: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to load CSV {s3_key} for dataset {dataset_id}: {str(e)}")
+        raise HTTPException(
+            status_code=400, detail=f"Failed to load CSV from S3: {str(e)}"
+        )
 
-    # build DataFrame
-    df = pd.DataFrame(data)
+    # Validate DataFrame
+    if df.empty:
+        logger.warning(f"Dataset {dataset_id}: Empty DataFrame")
+        raise HTTPException(status_code=400, detail="Empty DataFrame")
 
-    # run df.info()
+    # Sanitize values
+    def sanitize_value(val):
+        if isinstance(val, (np.floating, float)):
+            if math.isnan(val) or math.isinf(val):
+                return None
+            return float(val)
+        if isinstance(val, (np.integer, int)):
+            return int(val)
+        if isinstance(val, (np.bool_, bool)):
+            return bool(val)
+        if isinstance(val, (pd.Timestamp, np.datetime64)):
+            return str(val)
+        return str(val) if val is not None else None
+
+    # Run df.info()
     buf = io.StringIO()
     df.info(buf=buf)
     info_output = buf.getvalue()
 
-    return {
-        "preview": df.head().to_dict(orient="records"),
+    # Prepare response
+    response = {
+        "preview": [
+            {k: sanitize_value(v) for k, v in record.items()}
+            for record in df.head(limit).to_dict(orient="records")
+        ],
         "shape": list(df.shape),
         "columns": df.columns.tolist(),
-        "dtypes": df.dtypes.astype(str).to_dict(),
-        "null_counts": df.isnull().sum().to_dict(),
-        "summary_stats": df.describe(include="all").fillna("").to_dict(),
+        "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
+        "null_counts": {
+            col: sanitize_value(val) for col, val in df.isnull().sum().to_dict().items()
+        },
+        "summary_stats": {},  # Skip to avoid serialization issues
         "info_output": info_output,
     }
 
-
-from fastapi import status
+    logger.info(
+        f"Dataset {dataset_id} insights response: {json.dumps(response, default=str)}"
+    )
+    return response
 
 
 @app.delete(
@@ -380,55 +543,38 @@ async def delete_dataset(
     return
 
 
-@app.post("/api/datasets/{dataset_id}/clean")
-def clean_data(req: CleanRequest):
+@app.post(
+    "/api/datasets/{dataset_id}/clean",
+    dependencies=[Depends(current_user)],
+)
+async def clean_data(
+    dataset_id: int,
+    req: CleanRequest,
+    db: AsyncSession = Depends(get_async_db),
+):
+    ds = await db.get(DatasetModel, dataset_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
     df = pd.DataFrame(req.data)
 
     if req.operations.get("dropna"):
         df = df.dropna()
+
     for col, val in req.operations.get("fillna", {}).items():
         df[col] = df[col].fillna(val)
+
     if req.operations.get("lowercase_headers"):
         df.columns = [c.lower() for c in df.columns]
 
+    # Save cleaned data back to the existing dataset
     cleaned_dict = df.to_dict(orient="records")
-    filename = req.operations.get("filename", "unknown.csv")
+    ds.cleaned_data = cleaned_dict
 
-    db = AsyncSession = (Depends(get_async_db),)
-    try:
-        new_dataset = DatasetModel(filename=filename, cleaned_data=cleaned_dict)
-        db.add(new_dataset)
-        db.commit()
-        db.refresh(new_dataset)
-    finally:
-        db.close()
+    await db.commit()
+    await db.refresh(ds)
 
-    return {"data": cleaned_dict}
-
-
-def get_db():
-    db = AsyncSession = (Depends(get_async_db),)
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-class CleanOps(BaseModel):
-    dropna: bool = False
-    fillna_strategy: str | None = None  # "mean","median","mode","zero"
-    lowercase_headers: bool = False
-    remove_duplicates: bool = False
-
-
-class PreprocessOps(BaseModel):
-    scale: str | None = None  # "normalize","standardize"
-    encoding: str | None = None  # "onehot","label"
-
-
-class ProcessRequest(BaseModel):
-    clean: CleanOps
-    preprocess: PreprocessOps
+    return {"id": ds.id, "cleaned_row_count": len(cleaned_dict)}
 
 
 @app.post(
@@ -491,7 +637,6 @@ async def process_dataset(
                 if std:
                     df[c] = (df[c] - mean) / std
 
-    # ─── sanitize before storing ─────────────────────────────
     norm_params = sanitize_floats(norm_params)
     cat_maps = {}
     if payload.preprocess.encoding == "label":
@@ -510,7 +655,6 @@ async def process_dataset(
     # ─── Persist in DB and S3 ───────────────────────────────────────
     ds.normalization_params = norm_params
     cleaned_records = df.to_dict(orient="records")
-    # Save into your DatasetModel fields:
     ds.column_renames = renames
     ds.cleaned_data = cleaned_records
     ds.normalization_params = norm_params
@@ -521,6 +665,23 @@ async def process_dataset(
     key = upload_bytes(buf.getvalue().encode("utf-8"), f"final_{ds.filename}")
     ds.s3_key = key
 
+    # 🔽 🔽 🔽 INSERT THIS SECTION RIGHT HERE 🔽 🔽 🔽
+    ds.n_rows, ds.n_columns = df.shape
+    ds.has_missing_values = df.isnull().values.any()
+    ds.current_stage = "processed"
+    ds.processing_log = ds.processing_log or []
+    ds.processing_log.append("Processed with clean+preprocess step")
+
+    ds.column_metadata = {
+        col: {
+            "dtype": str(df[col].dtype),
+            "n_unique": int(df[col].nunique()),
+            "null_count": int(df[col].isnull().sum()),
+        }
+        for col in df.columns
+    }
+    # 🔼 🔼 🔼 END OF METADATA SECTION 🔼 🔼 🔼
+
     await db.commit()
     await db.refresh(ds)
 
@@ -529,6 +690,7 @@ async def process_dataset(
 
 @app.get(
     "/api/datasets/{dataset_id}/download",
+    response_model=DownloadURLResponse,
     dependencies=[Depends(current_user)],
 )
 async def download_dataset(
@@ -543,7 +705,7 @@ async def download_dataset(
         url = s3.generate_presigned_url(
             "get_object",
             Params={"Bucket": S3_BUCKET, "Key": ds.s3_key},
-            ExpiresIn=3600,  # link valid for 1 hour
+            ExpiresIn=3600,
         )
     except ClientError as e:
         logger.error(f"Presigned URL generation failed: {e}")
@@ -627,11 +789,14 @@ async def correlation_matrix(dataset_id: int, db: AsyncSession = Depends(get_asy
     response_model=dict,
 )
 async def preview_cleaning(
-    data: Dict[str, Any], db: AsyncSession = Depends(get_async_db)
+    payload: CleanPreviewRequest, db: AsyncSession = Depends(get_async_db)
 ):
-    dataset_id = data.get("dataset_id")
-    operations = data.get("operations", {})
-    save_dataset = data.get("save", False)  # Flag to save cleaned dataset
+    dataset_id = payload.dataset_id
+    operations = payload.operations or {}
+    save = payload.save
+
+    # Log operations
+    logger.info(f"Dataset {dataset_id} operations: {operations}")
 
     # Fetch dataset
     stmt = select(DatasetModel).filter(DatasetModel.id == dataset_id)
@@ -640,118 +805,272 @@ async def preview_cleaning(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    df = pd.DataFrame(dataset.raw_data)
+    # Fetch CSV from S3
+    if not dataset.s3_key:
+        raise HTTPException(status_code=400, detail="No raw data available")
+    try:
+        response = s3.get_object(Bucket=S3_BUCKET, Key=dataset.s3_key)
+        content = response["Body"].read()
+        encodings = ["utf-8", "iso-8859-1", "latin1", "cp1252"]
+        df = None
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(
+                    io.StringIO(content.decode(encoding, errors="replace"))
+                )
+                logger.info(f"Loaded CSV {dataset.s3_key} with encoding {encoding}")
+                break
+            except Exception as e:
+                logger.warning(
+                    f"Failed with encoding {encoding} for {dataset.s3_key}: {str(e)}"
+                )
+        if df is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to load CSV from S3: unable to parse with encodings {encodings}",
+            )
+    except Exception as e:
+        logger.error(
+            f"Failed to fetch CSV {dataset.s3_key} for dataset {dataset_id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=400, detail=f"Failed to fetch CSV from S3: {str(e)}"
+        )
+
     df_cleaned = df.copy()
-    alerts = []  # Store alerts for invalid operations
+    alerts = []
 
-    # --- Before Stats ---
+    # Log original columns
+    logger.info(f"Dataset {dataset_id} original columns: {df.columns.tolist()}")
+
+    # Sanitization
+    def sanitize_value(val):
+        if isinstance(val, (np.floating, float)):
+            if math.isnan(val) or math.isinf(val):
+                return None
+            return float(val)
+        if isinstance(val, (np.integer, int)):
+            return int(val)
+        if isinstance(val, (np.bool_, bool)):
+            return bool(val)
+        if isinstance(val, (pd.Timestamp, np.datetime64)):
+            return str(val)
+        return str(val) if val is not None else None
+
+    # Generate column_metadata if null
+    if not dataset.column_metadata:
+        try:
+            dataset.column_metadata = {
+                col: {
+                    "dtype": str(df[col].dtype),
+                    "n_unique": int(df[col].nunique(dropna=True)),
+                    "null_count": int(df[col].isnull().sum()),
+                }
+                for col in df.columns
+            }
+            dataset.n_rows, dataset.n_columns = df.shape
+            dataset.has_missing_values = bool(df.isnull().values.any())
+            await db.commit()
+            await db.refresh(dataset)
+        except Exception as e:
+            alerts.append(f"Failed to generate column_metadata: {str(e)}")
+            logger.error(
+                f"Metadata generation failed for dataset {dataset_id}: {str(e)}"
+            )
+
+    # Before stats
     before = {
-        "shape": df.shape,
-        "null_counts": df.isnull().sum().to_dict(),
-        "dtypes": df.dtypes.astype(str).to_dict(),
+        "shape": list(df.shape),
+        "null_counts": {
+            col: sanitize_value(val) for col, val in df.isnull().sum().to_dict().items()
+        },
+        "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
     }
+    logger.info(f"Dataset {dataset_id} before_stats: {before}")
 
-    # --- Lowercase Headers ---
-    if operations.get("lowercase_headers"):
+    # Apply cleaning operations
+    if operations.get("lowercase_headers", False):
+        logger.info(f"Dataset {dataset_id}: Applying lowercase_headers")
         df_cleaned.columns = [c.lower() for c in df_cleaned.columns]
+        logger.info(
+            f"Dataset {dataset_id} cleaned columns: {df_cleaned.columns.tolist()}"
+        )
 
-    # --- Handle Missing Values ---
     strategy = operations.get("fillna_strategy")
-    if strategy in {"mean", "median", "mode"}:
-        for col in df_cleaned.columns:
-            if df_cleaned[col].isnull().any():
-                # Check if column is numeric for mean/median
-                if strategy in {"mean", "median"} and not pd.api.types.is_numeric_dtype(
-                    df_cleaned[col]
-                ):
-                    alerts.append(
-                        f"Cannot apply {strategy} fillna to non-numeric column '{col}'"
-                    )
-                    continue
+    selected_columns = operations.get("selected_columns", [])
+    if strategy in {"mean", "median", "mode", "zero"}:
+        logger.info(
+            f"Dataset {dataset_id}: Applying fillna_strategy={strategy} to columns={selected_columns or 'all'}"
+        )
+        for col in selected_columns or df_cleaned.columns:
+            if col not in df_cleaned.columns:
+                alerts.append(f"Column '{col}' not found")
+                continue
+            if strategy in {"mean", "median"} and not pd.api.types.is_numeric_dtype(
+                df_cleaned[col]
+            ):
+                alerts.append(
+                    f"Cannot apply {strategy} fillna to non-numeric column '{col}'"
+                )
+                continue
+            try:
                 if strategy == "mean":
-                    df_cleaned[col] = df_cleaned[col].fillna(df_cleaned[col].mean())
+                    fill_value = df_cleaned[col].mean()
+                    df_cleaned[col] = df_cleaned[col].fillna(fill_value)
+                    logger.info(
+                        f"Dataset {dataset_id}: Filled '{col}' with mean={fill_value}"
+                    )
                 elif strategy == "median":
-                    df_cleaned[col] = df_cleaned[col].fillna(df_cleaned[col].median())
+                    fill_value = df_cleaned[col].median()
+                    df_cleaned[col] = df_cleaned[col].fillna(fill_value)
+                    logger.info(
+                        f"Dataset {dataset_id}: Filled '{col}' with median={fill_value}"
+                    )
                 elif strategy == "mode":
                     mode_val = df_cleaned[col].mode()
                     if not mode_val.empty:
-                        df_cleaned[col] = df_cleaned[col].fillna(mode_val[0])
-    elif strategy == "zero":
-        df_cleaned = df_cleaned.fillna(0)
-
-    # --- Scale Data ---
-    scale_method = operations.get("scale")
-    numeric_cols = df_cleaned.select_dtypes(include="number").columns
-    cat_cols = df_cleaned.select_dtypes(include=["object", "category"]).columns
-
-    if scale_method in {"normalize", "standardize"}:
-        # Check if scaling is attempted on categorical columns
-        if operations.get("encoding") is None and len(cat_cols) > 0:
-            alerts.append(
-                f"Cannot apply {scale_method} scaling to categorical columns {list(cat_cols)}. "
-                "Please encode categorical variables first (e.g., onehot or label encoding)."
-            )
-        else:
-            for col in numeric_cols:
-                if scale_method == "normalize":
-                    min_val = df_cleaned[col].min()
-                    max_val = df_cleaned[col].max()
-                    if min_val != max_val:
-                        df_cleaned[col] = (df_cleaned[col] - min_val) / (
-                            max_val - min_val
+                        fill_value = mode_val[0]
+                        df_cleaned[col] = df_cleaned[col].fillna(fill_value)
+                        logger.info(
+                            f"Dataset {dataset_id}: Filled '{col}' with mode={fill_value}"
                         )
-                    else:
-                        alerts.append(
-                            f"Cannot normalize column '{col}' (min equals max)"
-                        )
-                elif scale_method == "standardize":
-                    mean = df_cleaned[col].mean()
-                    std = df_cleaned[col].std()
-                    if std > 0:
-                        df_cleaned[col] = (df_cleaned[col] - mean) / std
-                    else:
-                        alerts.append(
-                            f"Cannot standardize column '{col}' (standard deviation is zero)"
-                        )
+                elif strategy == "zero":
+                    df_cleaned[col] = df_cleaned[col].fillna(0)
+                    logger.info(f"Dataset {dataset_id}: Filled '{col}' with zero")
+            except Exception as e:
+                alerts.append(f"Failed to apply {strategy} to column '{col}': {str(e)}")
+                logger.error(
+                    f"Cleaning failed for column '{col}' in dataset {dataset_id}: {str(e)}"
+                )
 
-    # --- Encode Categorical Variables ---
     encoding = operations.get("encoding")
     if encoding in {"onehot", "label"}:
-        cat_cols = df_cleaned.select_dtypes(
+        logger.info(f"Dataset {dataset_id}: Applying encoding={encoding}")
+        categorical_cols = df_cleaned.select_dtypes(
             include=["object", "category"]
         ).columns.tolist()
-        if not cat_cols:
-            alerts.append("No categorical columns to encode.")
+        if not categorical_cols:
+            alerts.append("No categorical columns found for encoding")
+            logger.info(f"Dataset {dataset_id}: No categorical columns for encoding")
         else:
-            if encoding == "onehot":
-                df_cleaned = pd.get_dummies(df_cleaned, columns=cat_cols)
-            elif encoding == "label":
-                for col in cat_cols:
+            try:
+                if encoding == "label":
                     le = LabelEncoder()
-                    df_cleaned[col] = le.fit_transform(df_cleaned[col])
+                    for col in categorical_cols:
+                        df_cleaned[col] = le.fit_transform(df_cleaned[col].fillna(""))
+                        logger.info(
+                            f"Dataset {dataset_id}: Label encoded column '{col}'"
+                        )
+                elif encoding == "onehot":
+                    df_cleaned = pd.get_dummies(
+                        df_cleaned, columns=categorical_cols, dummy_na=False
+                    )
+                    logger.info(
+                        f"Dataset {dataset_id}: One-hot encoded columns {categorical_cols}"
+                    )
+            except Exception as e:
+                alerts.append(f"Failed to apply {encoding} encoding: {str(e)}")
+                logger.error(f"Encoding failed for dataset {dataset_id}: {str(e)}")
+        logger.info(
+            f"Dataset {dataset_id} columns after encoding: {df_cleaned.columns.tolist()}"
+        )
 
-    # --- After Stats ---
+    if operations.get("dropna", False):
+        logger.info(f"Dataset {dataset_id}: Applying dropna")
+        row_count_before = len(df_cleaned)
+        df_cleaned = df_cleaned.dropna()
+        logger.info(
+            f"Dataset {dataset_id}: Dropped {row_count_before - len(df_cleaned)} rows"
+        )
+
+    if operations.get("remove_duplicates", False):
+        logger.info(f"Dataset {dataset_id}: Applying remove_duplicates")
+        row_count_before = len(df_cleaned)
+        df_cleaned = df_cleaned.drop_duplicates()
+        logger.info(
+            f"Dataset {dataset_id}: Removed {row_count_before - len(df_cleaned)} duplicates"
+        )
+
+    # After stats (computed after all operations)
     after = {
-        "shape": df_cleaned.shape,
-        "null_counts": df_cleaned.isnull().sum().to_dict(),
-        "dtypes": df_cleaned.dtypes.astype(str).to_dict(),
+        "shape": list(df_cleaned.shape),
+        "null_counts": {
+            col: sanitize_value(val)
+            for col, val in df_cleaned.isnull().sum().to_dict().items()
+        },
+        "dtypes": {col: str(dtype) for col, dtype in df_cleaned.dtypes.items()},
     }
+    logger.info(f"Dataset {dataset_id} after_stats: {after}")
 
-    # --- Save Dataset (Optional) ---
-    if save_dataset:
-        dataset.raw_data = df_cleaned.to_dict(orient="records")
-        await db.commit()
-        await db.refresh(dataset)
+    # Preview data
+    preview = [
+        {k: sanitize_value(v) for k, v in record.items()}
+        for record in df_cleaned.head(5).to_dict(orient="records")
+    ]
+    logger.info(f"Dataset {dataset_id} preview: {preview}")
 
-    # --- Return Response ---
+    # Save to S3 if save=True
+    if save:
+        try:
+            buf = io.StringIO()
+            df_cleaned.to_csv(buf, index=False)
+            s3_key_cleaned = f"cleaned/final_{dataset.filename}"
+            response = s3.put_object(
+                Bucket=S3_BUCKET,
+                Key=s3_key_cleaned,
+                Body=buf.getvalue().encode("utf-8"),
+            )
+            logger.info(
+                f"Dataset {dataset_id} uploaded to S3: {s3_key_cleaned}, response: {response}"
+            )
+            # Verify upload
+            try:
+                s3.head_object(Bucket=S3_BUCKET, Key=s3_key_cleaned)
+                logger.info(f"Dataset {dataset_id} verified in S3: {s3_key_cleaned}")
+                dataset.s3_key_cleaned = s3_key_cleaned
+                dataset.has_cleaned_data = True
+            except ClientError as e:
+                logger.error(
+                    f"Failed to verify S3 upload for {s3_key_cleaned}: {str(e)}"
+                )
+                raise Exception(f"Failed to verify S3 upload: {str(e)}")
+            dataset.column_metadata = {
+                col: {
+                    "dtype": str(df_cleaned[col].dtype),
+                    "n_unique": int(df_cleaned[col].nunique(dropna=True)),
+                    "null_count": int(df_cleaned[col].isnull().sum()),
+                }
+                for col in df_cleaned.columns
+            }
+            dataset.n_rows, dataset.n_columns = df_cleaned.shape
+            dataset.has_missing_values = bool(df_cleaned.isnull().values.any())
+            dataset.processing_log = dataset.processing_log or ""
+            dataset.processing_log += (
+                f" | Cleaned with operations: {json.dumps(operations)}"
+            )
+            await db.commit()
+            await db.refresh(dataset)
+            logger.info(
+                f"Dataset {dataset_id} saved: s3_key_cleaned={s3_key_cleaned}, has_cleaned_data={dataset.has_cleaned_data}"
+            )
+        except Exception as e:
+            await db.rollback()
+            logger.error(f"Save failed for dataset {dataset_id}: {str(e)}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to save cleaned data: {str(e)}"
+            )
+
+    # Response
     response = {
         "before_stats": before,
         "after_stats": after,
+        "preview": preview,
         "alerts": alerts,
+        "saved": save,
     }
 
-    if save_dataset:
-        response["saved"] = True
+    # Log response
+    logger.info(f"Dataset {dataset_id} response: {json.dumps(response, default=str)}")
 
     return response
 
@@ -776,16 +1095,3 @@ if "DYNO" in os.environ:
         print(f"⚠️  No frontend build found at {DIST}, skipping static mount")
 else:
     print("⚠️  Development mode: skipping static mount")
-
-
-# 8) SPA catch‐all (for React routing)
-# @app.get("/{full_path:path}")
-# async def spa_router(request: Request, full_path: str):
-#     if full_path.startswith("api/"):
-#         raise HTTPException(status_code=404, detail="Not Found")
-#     index_file = (
-#         Path(__file__).resolve().parent.parent / "client" / "dist" / "index.html"
-#     )
-#     if index_file.exists():
-#         return FileResponse(index_file)
-#     raise HTTPException(status_code=404, detail="Not Found")

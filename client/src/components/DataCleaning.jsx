@@ -5,11 +5,11 @@ export default function DataCleaning() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [rawData, setRawData] = useState([]);
+  const [previewData, setPreviewData] = useState([]); // Changed from rawData
   const [cleanedData, setCleanedData] = useState([]);
   const [beforeStats, setBeforeStats] = useState(null);
   const [afterStats, setAfterStats] = useState(null);
-  const [alerts, setAlerts] = useState([]); // New state for alerts
+  const [alerts, setAlerts] = useState([]);
   const [options, setOptions] = useState({});
   const [filename, setFilename] = useState("");
   const [loading, setLoading] = useState(true);
@@ -26,7 +26,7 @@ export default function DataCleaning() {
         if (res.status === 404) return navigate("/datasets");
         if (!res.ok) throw new Error("Cannot load dataset");
         const data = await res.json();
-        setRawData(data.raw_data);
+        setPreviewData(data.preview_data || []); // Use preview_data
         setFilename(data.filename);
       } catch (err) {
         setError(err.message || "Failed to load dataset");
@@ -39,7 +39,7 @@ export default function DataCleaning() {
 
   const handlePreview = async () => {
     setLoading(true);
-    setAlerts([]); // Clear previous alerts
+    setAlerts([]);
     try {
       const res = await fetch(`/api/datasets/${id}/clean-preview`, {
         method: "POST",
@@ -52,9 +52,8 @@ export default function DataCleaning() {
       const data = await res.json();
       setBeforeStats(data.before_stats);
       setAfterStats(data.after_stats);
-      setAlerts(data.alerts || []); // Set alerts from response
-      // Use rawData as a fallback since preview is not provided
-      setCleanedData(data.preview || rawData.slice(0, 5));
+      setAlerts(data.alerts || []);
+      setCleanedData(data.preview || previewData.slice(0, 5)); // Use preview_data as fallback
     } catch (err) {
       setError(err.message);
     } finally {
@@ -64,7 +63,7 @@ export default function DataCleaning() {
 
   const handleSave = async () => {
     setSaving(true);
-    setAlerts([]); // Clear previous alerts
+    setAlerts([]);
     try {
       const res = await fetch(`/api/datasets/${id}/clean-preview`, {
         method: "POST",
@@ -73,7 +72,7 @@ export default function DataCleaning() {
         body: JSON.stringify({
           dataset_id: Number(id),
           operations: options,
-          save: true, // Trigger save in the backend
+          save: true,
         }),
       });
 
@@ -87,9 +86,9 @@ export default function DataCleaning() {
       }
 
       const data = await res.json();
-      setAlerts(data.alerts || []); // Update alerts
+      setAlerts(data.alerts || []);
       if (data.saved) {
-        navigate(`/datasets/${id}`); // Navigate back to dataset view
+        navigate(`/datasets/${id}`);
       } else {
         throw new Error("Save operation did not complete");
       }
@@ -275,7 +274,7 @@ export default function DataCleaning() {
         {beforeStats && afterStats && (
           <button
             onClick={handleSave}
-            disabled={saving || alerts.length > 0} // Disable save if there are alerts
+            disabled={saving || alerts.length > 0}
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-500 disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save Cleaned Dataset"}

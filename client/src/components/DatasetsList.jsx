@@ -1,4 +1,3 @@
-// client/src/components/DatasetsList.jsx
 import { useEffect, useState } from "react";
 import { CalendarIcon, EyeIcon, TrashIcon } from "@heroicons/react/20/solid";
 import { Link, useNavigate } from "react-router-dom";
@@ -16,7 +15,7 @@ export default function DatasetsList() {
       try {
         const res = await fetch("/api/datasets", {
           method: "GET",
-          credentials: "include", // ← send cookie
+          credentials: "include",
         });
         if (res.status === 401) {
           setError("Session expired. Please log in again.");
@@ -27,6 +26,7 @@ export default function DatasetsList() {
           throw new Error("Failed to fetch datasets");
         }
         const data = await res.json();
+        console.log("Fetched datasets:", data);
         setDatasets(data);
       } catch (err) {
         setError(err.message || "Unknown error");
@@ -44,7 +44,7 @@ export default function DatasetsList() {
     try {
       const res = await fetch(`/api/datasets/${id}`, {
         method: "DELETE",
-        credentials: "include", // ← send HttpOnly cookie
+        credentials: "include",
       });
 
       if (res.status === 204) {
@@ -95,7 +95,8 @@ export default function DatasetsList() {
 
       <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {datasets.map((dataset) => {
-          const processed = dataset.s3_key?.includes("final_");
+          const processed = dataset.has_cleaned_data;
+
           return (
             <li
               key={dataset.id}
