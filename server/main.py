@@ -12,6 +12,7 @@ import io
 import base64
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+import time
 
 # ---------- Third-party ----------
 from dotenv import load_dotenv
@@ -714,46 +715,120 @@ async def download_dataset(
     return {"url": url}
 
 
-@app.get("/api/datasets/{dataset_id}/heatmap", dependencies=[Depends(current_user)])
-async def get_heatmap(dataset_id: int, db: AsyncSession = Depends(get_async_db)):
-    obj = await db.get(DatasetModel, dataset_id)
-    if not obj or not obj.raw_data:
-        raise HTTPException(status_code=404, detail="Dataset not found or empty")
+logger = logging.getLogger("server.main")
 
-    df = pd.DataFrame(obj.raw_data)
 
-    # 1) Keep only numeric columns
-    numeric_df = df.select_dtypes(include=[np.number])
+@app.get(
+    "/api/datasets/{dataset_id}/heatmap",
+    dependencies=[Depends(current_user)],
+)
+async def get_dataset_heatmap(
+    dataset_id: int,
+    which: str = Query("raw", regex="^(raw|cleaned)$"),
+    db: AsyncSession = Depends(get_async_db),
+):
+    # Fetch dataset
+    ds = await db.get(DatasetModel, dataset_id)
+    if not ds:
+        raise HTTPException(status_code=404, detail="Dataset not found")
 
-    # 2) If fewer than two numeric columns, return a 400 with a message
-    if numeric_df.shape[1] < 2:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "Not enough numeric data to generate a heatmap. "
-                "Please select a dataset with at least two numeric columns."
-            },
+    # Pick raw vs. cleaned
+    s3_key = ds.s3_key if which == "raw" else ds.s3_key_cleaned
+    if which == "cleaned" and (not ds.has_cleaned_data or not ds.s3_key_cleaned):
+        logger.warning(f"Dataset {dataset_id}: No cleaned data available")
+        raise HTTPException(status_code=400, detail="No cleaned data available")
+    if not s3_key:
+        logger.warning(f"Dataset {dataset_id}: No {which} data available")
+        raise HTTPException(status_code=400, detail=f"No {which} data available")
+
+    # Fetch CSV from S3
+    try:
+        response = s3.get_object(Bucket=S3_BUCKET, Key=s3_key)
+        content = response["Body"].read()
+        encodings = ["utf-8", "iso-8859-1", "latin1", "cp1252"]
+        df = None
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(
+                    io.StringIO(content.decode(encoding, errors="replace"))
+                )
+                logger.info(f"Loaded CSV {s3_key} with encoding {encoding}")
+                break
+            except Exception as e:
+                logger.warning(
+                    f"Failed with encoding {encoding} for {s3_key}: {str(e)}"
+                )
+        if df is None:
+            raise Exception("Failed to parse CSV with any encoding")
+    except Exception as e:
+        logger.error(f"Failed to load CSV {s3_key} for dataset {dataset_id}: {str(e)}")
+        raise HTTPException(
+            status_code=400, detail=f"Failed to load CSV from S3: {str(e)}"
         )
 
-    # 3) (Optional) Cap to a reasonable number of features
-    MAX_FEATURES = 50
-    if numeric_df.shape[1] > MAX_FEATURES:
-        top_cols = numeric_df.var().sort_values(ascending=False).index[:MAX_FEATURES]
-        numeric_df = numeric_df[top_cols]
+    # Validate DataFrame
+    if df.empty:
+        logger.warning(f"Dataset {dataset_id}: Empty DataFrame")
+        raise HTTPException(status_code=400, detail="Empty DataFrame")
 
-    # 4) Compute and plot
-    corr = numeric_df.corr()
-    fig, ax = plt.subplots(figsize=(10, 8))
-    sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", ax=ax)
-    buf = io.BytesIO()
-    fig.tight_layout()
-    fig.savefig(buf, format="png")
-    plt.close(fig)
-    buf.seek(0)
+    # Select numeric columns for correlation
+    numeric_cols = df.select_dtypes(include=["int64", "float64"]).columns.tolist()
+    if not numeric_cols:
+        logger.warning(f"Dataset {dataset_id}: No numeric columns for heatmap")
+        raise HTTPException(
+            status_code=400, detail="No numeric columns available for heatmap"
+        )
 
-    # 5) Encode and return
-    img_b64 = base64.b64encode(buf.read()).decode()
-    return {"plot": f"data:image/png;base64,{img_b64}"}
+    # Generate heatmap
+    try:
+        plt.figure(figsize=(10, 8))
+        corr = df[numeric_cols].corr()
+        sns.heatmap(corr, annot=False, cmap="coolwarm", vmin=-1, vmax=1)
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", bbox_inches="tight")
+        plt.close()
+        buf.seek(0)
+    except Exception as e:
+        logger.error(f"Failed to generate heatmap for dataset {dataset_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate heatmap: {str(e)}"
+        )
+
+    # Upload plot to S3
+    plot_key = f"plots/heatmap_{dataset_id}_{which}_{int(time.time())}.png"
+    try:
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=plot_key,
+            Body=buf.getvalue(),
+            ContentType="image/png",
+        )
+        logger.info(f"Dataset {dataset_id}: Uploaded heatmap to S3: {plot_key}")
+    except Exception as e:
+        logger.error(
+            f"Failed to upload heatmap to S3 for dataset {dataset_id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to upload heatmap: {str(e)}"
+        )
+
+    # Generate presigned URL
+    try:
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": S3_BUCKET, "Key": plot_key},
+            ExpiresIn=3600,
+        )
+        logger.info(f"Dataset {dataset_id}: Generated presigned URL for heatmap")
+    except Exception as e:
+        logger.error(
+            f"Failed to generate presigned URL for dataset {dataset_id}: {str(e)}"
+        )
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate presigned URL: {str(e)}"
+        )
+
+    return {"plot": url}
 
 
 @app.get("/api/datasets/{dataset_id}/correlation", dependencies=[Depends(current_user)])
@@ -850,7 +925,7 @@ async def preview_cleaning(
                 return None
             return float(val)
         if isinstance(val, (np.integer, int)):
-            return int(val)
+            return int(val)  # Convert np.int64 to int
         if isinstance(val, (np.bool_, bool)):
             return bool(val)
         if isinstance(val, (pd.Timestamp, np.datetime64)):
@@ -944,6 +1019,7 @@ async def preview_cleaning(
                 )
 
     encoding = operations.get("encoding")
+    categorical_mappings = {}
     if encoding in {"onehot", "label"}:
         logger.info(f"Dataset {dataset_id}: Applying encoding={encoding}")
         categorical_cols = df_cleaned.select_dtypes(
@@ -955,11 +1031,16 @@ async def preview_cleaning(
         else:
             try:
                 if encoding == "label":
-                    le = LabelEncoder()
                     for col in categorical_cols:
+                        le = LabelEncoder()
                         df_cleaned[col] = le.fit_transform(df_cleaned[col].fillna(""))
+                        # Convert np.int64 to int for JSON serialization
+                        categorical_mappings[col] = {
+                            str(k): int(v)
+                            for k, v in zip(le.classes_, le.transform(le.classes_))
+                        }
                         logger.info(
-                            f"Dataset {dataset_id}: Label encoded column '{col}'"
+                            f"Dataset {dataset_id}: Label encoded column '{col}', mapping={categorical_mappings}"
                         )
                 elif encoding == "onehot":
                     df_cleaned = pd.get_dummies(
@@ -991,7 +1072,51 @@ async def preview_cleaning(
             f"Dataset {dataset_id}: Removed {row_count_before - len(df_cleaned)} duplicates"
         )
 
-    # After stats (computed after all operations)
+    scale = operations.get("scale")
+    normalization_params = {}
+    if scale in {"normalize", "standardize"}:
+        logger.info(f"Dataset {dataset_id}: Applying scale={scale}")
+        numeric_cols = df_cleaned.select_dtypes(
+            include=["int64", "float64"]
+        ).columns.tolist()
+        if not numeric_cols:
+            alerts.append("No numeric columns found for scaling")
+            logger.info(f"Dataset {dataset_id}: No numeric columns for scaling")
+        else:
+            try:
+                for col in numeric_cols:
+                    if scale == "normalize":
+                        min_val, max_val = df_cleaned[col].min(), df_cleaned[col].max()
+                        if max_val != min_val:
+                            df_cleaned[col] = (df_cleaned[col] - min_val) / (
+                                max_val - min_val
+                            )
+                            normalization_params[col] = {
+                                "min": float(min_val),
+                                "max": float(max_val),
+                            }
+                            logger.info(
+                                f"Dataset {dataset_id}: Normalized column '{col}', min={min_val}, max={max_val}"
+                            )
+                    elif scale == "standardize":
+                        mean_val, std_val = (
+                            df_cleaned[col].mean(),
+                            df_cleaned[col].std(),
+                        )
+                        if std_val != 0:
+                            df_cleaned[col] = (df_cleaned[col] - mean_val) / std_val
+                            normalization_params[col] = {
+                                "mean": float(mean_val),
+                                "std": float(std_val),
+                            }
+                            logger.info(
+                                f"Dataset {dataset_id}: Standardized column '{col}', mean={mean_val}, std={std_val}"
+                            )
+            except Exception as e:
+                alerts.append(f"Failed to apply {scale} scaling: {str(e)}")
+                logger.error(f"Scaling failed for dataset {dataset_id}: {str(e)}")
+
+    # After stats
     after = {
         "shape": list(df_cleaned.shape),
         "null_counts": {
@@ -1044,6 +1169,16 @@ async def preview_cleaning(
             }
             dataset.n_rows, dataset.n_columns = df_cleaned.shape
             dataset.has_missing_values = bool(df_cleaned.isnull().values.any())
+            dataset.categorical_mappings = (
+                categorical_mappings
+                if categorical_mappings
+                else dataset.categorical_mappings
+            )
+            dataset.normalization_params = (
+                normalization_params
+                if normalization_params
+                else dataset.normalization_params
+            )
             dataset.processing_log = dataset.processing_log or ""
             dataset.processing_log += (
                 f" | Cleaned with operations: {json.dumps(operations)}"

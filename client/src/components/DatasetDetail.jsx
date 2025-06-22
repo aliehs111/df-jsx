@@ -11,7 +11,7 @@ export default function DatasetDetail() {
 
   const [dataset, setDataset] = useState(null);
   const [cleanedPreview, setCleanedPreview] = useState(null);
-  const [cleanedPreviewError, setCleanedPreviewError] = useState(null); // New state for errors
+  const [cleanedPreviewError, setCleanedPreviewError] = useState(null);
   const [heatmapUrl, setHeatmapUrl] = useState(null);
   const [heatmapError, setHeatmapError] = useState("");
   const [insights, setInsights] = useState(null);
@@ -33,7 +33,6 @@ export default function DatasetDetail() {
         const data = await res.json();
         setDataset(data);
 
-        // Fetch cleaned data preview if s3_key_cleaned exists
         if (data.s3_key_cleaned && data.has_cleaned_data) {
           try {
             const cleanRes = await fetch(
@@ -272,6 +271,12 @@ export default function DatasetDetail() {
               >
                 Sandbox
               </Link>
+              <button
+                onClick={downloadCleaned}
+                className="bg-green-800 text-white px-3 py-1 rounded"
+              >
+                Download Cleaned
+              </button>
             </div>
           </div>
         )}
