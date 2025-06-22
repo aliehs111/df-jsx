@@ -11,7 +11,7 @@ export default function Models() {
   const [nEstimators, setNEstimators] = useState(100);
   const [maxDepth, setMaxDepth] = useState("");
   const [C, setC] = useState(1.0);
-  const [targetUniqueCount, setTargetUniqueCount] = useState(null); // New: track unique values
+  const [targetUniqueCount, setTargetUniqueCount] = useState(null);
   const models = ["RandomForest", "PCA_KMeans", "LogisticRegression"];
   const [nClusters, setNClusters] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
@@ -34,14 +34,13 @@ export default function Models() {
           return;
         }
         const data = await res.json();
-        console.log("Fetched cleaned datasets:", data);
+        console.log("Debug: Fetched cleaned datasets:", data);
         setDatasets(Array.isArray(data) ? data : []);
       } catch (err) {
         console.error("Failed to fetch cleaned datasets", err);
         setDatasets([]);
       }
     };
-
     fetchCleanedDatasets();
   }, [navigate]);
 
@@ -63,28 +62,35 @@ export default function Models() {
           return;
         }
         if (!res.ok) {
-          console.error("Failed to fetch columns:", res.status);
+          const data = await res.json();
+          console.error("Failed to fetch columns:", res.status, data);
           setColumns([]);
           setSelectedTarget("");
           setTargetUniqueCount(null);
+          setResult({
+            error:
+              data.detail ||
+              "Failed to load dataset columns. Please ensure the dataset is properly cleaned.",
+          });
           return;
         }
         const data = await res.json();
+        console.log("Debug: Fetched columns:", data);
         setColumns(Array.isArray(data.columns) ? data.columns : []);
         setSelectedTarget("");
         setTargetUniqueCount(null);
+        setResult(null); // Clear error when columns load
       } catch (err) {
         console.error("Failed to fetch columns", err);
         setColumns([]);
         setSelectedTarget("");
         setTargetUniqueCount(null);
+        setResult({ error: `Failed to load columns: ${err.message}` });
       }
     };
-
     fetchColumns();
   }, [selectedDataset, navigate]);
 
-  // Fetch unique value count for target column
   useEffect(() => {
     const fetchUniqueCount = async () => {
       if (!selectedDataset || !selectedTarget) {
@@ -111,13 +117,13 @@ export default function Models() {
           return;
         }
         const data = await res.json();
+        console.log("Debug: Unique count:", data);
         setTargetUniqueCount(data.unique_count);
       } catch (err) {
         console.error("Failed to fetch unique count", err);
         setTargetUniqueCount(null);
       }
     };
-
     fetchUniqueCount();
   }, [selectedDataset, selectedTarget, navigate]);
 
@@ -164,21 +170,19 @@ export default function Models() {
       } else if (selectedModel === "PCA_KMeans") {
         payload.n_clusters = nClusters;
       }
+      console.log("Debug: Sending payload:", payload);
       const res = await fetch("/api/models/run", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
+      const data = await res.json();
+      console.log("Debug: Model run response:", data);
       if (!res.ok) {
-        const errorData = await res.json();
-        console.error("🛑 POST /api/models/run failed:", res.status, errorData);
-        setResult({
-          error: errorData.detail || `Model run failed (${res.status})`,
-        });
+        console.error("🛑 POST /api/models/run failed:", res.status, data);
+        setResult({ error: data.detail || `Model run failed (${res.status})` });
       } else {
-        const data = await res.json();
         setResult(data);
       }
     } catch (err) {
@@ -192,7 +196,6 @@ export default function Models() {
   return (
     <div className="max-w-4xl mx-auto p-6">
       <h1 className="text-3xl font-bold mb-6">Run Pretrained Models</h1>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <h2 className="text-lg font-semibold mb-2">
@@ -219,7 +222,6 @@ export default function Models() {
             </ul>
           )}
         </div>
-
         <div>
           <h2 className="text-lg font-semibold mb-2">⚙️ Choose a Model</h2>
           <ul className="space-y-2 mb-4">
@@ -235,7 +237,6 @@ export default function Models() {
               </li>
             ))}
           </ul>
-
           {(selectedModel === "RandomForest" ||
             selectedModel === "LogisticRegression") &&
             columns.length > 0 && (
@@ -269,7 +270,6 @@ export default function Models() {
                   )}
               </div>
             )}
-
           {selectedModel === "RandomForest" && (
             <div className="bg-amber-50 border border-yellow-300 p-4 rounded shadow mb-4">
               <div className="mb-2">
@@ -308,7 +308,6 @@ export default function Models() {
               </div>
             </div>
           )}
-
           {selectedModel === "LogisticRegression" && (
             <div className="bg-amber-50 border border-yellow-300 p-4 rounded shadow mb-4">
               <label
@@ -328,7 +327,6 @@ export default function Models() {
               />
             </div>
           )}
-
           {selectedModel === "PCA_KMeans" && (
             <div className="bg-amber-50 border border-yellow-300 p-4 rounded shadow">
               <label
@@ -353,7 +351,6 @@ export default function Models() {
           )}
         </div>
       </div>
-
       <div className="mt-6">
         <button
           onClick={handleRunModel}
@@ -365,31 +362,65 @@ export default function Models() {
           {isLoading ? "Running..." : "Run Model"}
         </button>
       </div>
-
       {result && (
         <div className="mt-6 bg-gray-100 p-4 rounded shadow">
           <h2 className="text-lg font-semibold mb-4">🧾 Model Output</h2>
-
           {result.error && (
             <p className="text-red-600 mb-4 border border-red-300 bg-red-50 p-3 rounded">
               ❌ Error: {result.error}
+              {(result.error.includes("preprocess the dataset") ||
+                result.error.includes("NoSuchKey") ||
+                result.error.includes("Missing target_column") ||
+                result.error.includes("No valid numeric feature columns") ||
+                result.error.includes("Empty dataset")) && (
+                <span className="block mt-2 text-sm">
+                  {result.error.includes("NoSuchKey")
+                    ? "The cleaned dataset file is missing. Please re-clean the dataset in the Data Cleaning page or upload a new file."
+                    : result.error.includes("preprocess the dataset")
+                    ? "The dataset has missing values (e.g., columns with all NaNs). Use the Data Cleaning page to drop or impute these values."
+                    : result.error.includes("Missing target_column")
+                    ? "Please select a valid target column for this model."
+                    : result.error.includes("Empty dataset")
+                    ? "The dataset is empty. Please upload a valid dataset or check your cleaning steps."
+                    : "The dataset lacks sufficient numeric features. Try cleaning or transforming the data in the Data Cleaning page."}{" "}
+                  Ask the chatbot for guidance on preparing your dataset!
+                </span>
+              )}
             </p>
           )}
-
-          {result.image_base64 && (
-            <img
-              src={`data:image/png;base64,${result.image_base64}`}
-              alt="Model result"
-              className="w-full max-w-lg mx-auto rounded-lg shadow-md mb-4"
-            />
+          {result.image_base64 ? (
+            <>
+              {console.log(
+                "Debug: image_base64 length:",
+                result.image_base64.length,
+                "first chars:",
+                result.image_base64.slice(0, 20)
+              )}
+              <img
+                src={`data:image/png;base64,${result.image_base64}`}
+                alt="Model result"
+                className="w-full max-w-lg mx-auto rounded-lg shadow-md mb-4"
+                onError={() =>
+                  console.error("Debug: Failed to load plot image")
+                }
+                onLoad={() =>
+                  console.log("Debug: Plot image loaded successfully")
+                } // Add load confirmation
+              />
+            </>
+          ) : (
+            !result.error && (
+              <p className="text-gray-600">
+                No plot available. Ensure the model ran successfully or check
+                the console for errors.
+              </p>
+            )
           )}
-
           {result.n_clusters && (
             <p className="mb-2">
               <strong>Clusters:</strong> {result.n_clusters}
             </p>
           )}
-
           {result.cluster_counts && (
             <div className="mb-4">
               <h3 className="font-medium">Cluster Counts:</h3>
@@ -404,7 +435,6 @@ export default function Models() {
               </ul>
             </div>
           )}
-
           {result.pca_variance_ratio && (
             <div className="mb-4">
               <h3 className="font-medium">Explained Variance (PCA):</h3>
@@ -417,7 +447,6 @@ export default function Models() {
               </ul>
             </div>
           )}
-
           {result.message && (
             <p className="mt-2 text-sm text-gray-600">✅ {result.message}</p>
           )}

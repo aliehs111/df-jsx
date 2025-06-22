@@ -1,8 +1,12 @@
+# server/routers/datasets.py
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
+import io
+import boto3
+import logging
 
 from server.database import get_async_db
 from server.models import Dataset as DatasetModel
@@ -10,6 +14,9 @@ from server.schemas import DatasetSummary
 from server.auth.userroutes import current_user
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
+logger = logging.getLogger("server.main")
+s3 = boto3.client("s3")
+S3_BUCKET = "dfjsx-uploads"
 
 
 @router.get(
@@ -19,54 +26,62 @@ router = APIRouter(prefix="/datasets", tags=["datasets"])
 )
 async def list_cleaned_datasets(db: AsyncSession = Depends(get_async_db)):
     """
-    Return only those datasets whose cleaned_data is not null.
-    We do NOT include ORDER BY here to avoid MySQL “Out of sort memory” issues.
+    Return datasets with has_cleaned_data=True and s3_key_cleaned not null.
     """
-    stmt = select(
-        DatasetModel.id,
-        DatasetModel.title,
-        DatasetModel.description,
-        DatasetModel.filename,
-        DatasetModel.s3_key,
-        DatasetModel.uploaded_at,
-    ).where(DatasetModel.cleaned_data.isnot(None))
-
-    result = await db.execute(stmt)
-    rows = result.all()
-
-    return [
-        DatasetSummary(
-            id=row.id,
-            title=row.title,
-            description=row.description,
-            filename=row.filename,
-            s3_key=row.s3_key,
-            uploaded_at=row.uploaded_at,
+    try:
+        stmt = select(DatasetModel).filter(
+            DatasetModel.has_cleaned_data == True, DatasetModel.s3_key_cleaned != None
         )
-        for row in rows
-    ]
+        result = await db.execute(stmt)
+        datasets = result.scalars().all()
+        logger.info(f"Fetched {len(datasets)} cleaned datasets")
+        return datasets
+    except Exception as e:
+        logger.error(f"Failed to fetch cleaned datasets: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch cleaned datasets: {str(e)}"
+        )
 
 
 @router.get("/{dataset_id}/columns", dependencies=[Depends(current_user)])
 async def get_dataset_columns(
     dataset_id: int, db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Return the column names of a dataset's cleaned_data.
-    """
     result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    if not dataset.cleaned_data:
-        raise HTTPException(status_code=400, detail="No cleaned data available")
-
+    if not dataset.has_cleaned_data or not dataset.s3_key_cleaned:
+        raise HTTPException(
+            status_code=400,
+            detail="No cleaned data available. Please clean the dataset in Data Cleaning.",
+        )
     try:
-        df = pd.DataFrame(dataset.cleaned_data)
+        response = s3.get_object(Bucket=S3_BUCKET, Key=dataset.s3_key_cleaned)
+        content = response["Body"].read()
+        encodings = ["utf-8", "iso-8859-1", "latin1", "cp1252"]
+        df = None
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(
+                    io.StringIO(content.decode(encoding, errors="replace"))
+                )
+                logger.info(
+                    f"Loaded CSV {dataset.s3_key_cleaned} with encoding {encoding}"
+                )
+                break
+            except Exception as e:
+                logger.warning(
+                    f"Failed with encoding {encoding} for {dataset.s3_key_cleaned}: {str(e)}"
+                )
+        if df is None:
+            raise Exception("Failed to parse CSV with any encoding")
         return {"columns": df.columns.tolist()}
     except Exception as e:
+        logger.error(f"Failed to fetch columns for dataset {dataset_id}: {str(e)}")
         raise HTTPException(
-            status_code=400, detail=f"Invalid cleaned_data format: {str(e)}"
+            status_code=400,
+            detail=f"Failed to load cleaned data: {str(e)}. Please ensure the dataset is cleaned and saved in Data Cleaning.",
         )
 
 
@@ -77,17 +92,35 @@ async def get_column_unique_values(
     dataset_id: int, column_name: str, db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Return the number of unique values in a specified column of a dataset's cleaned_data.
+    Return the number of unique values in a specified column of cleaned data.
     """
     result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    if not dataset.cleaned_data:
+    if not dataset.has_cleaned_data or not dataset.s3_key_cleaned:
         raise HTTPException(status_code=400, detail="No cleaned data available")
 
     try:
-        df = pd.DataFrame(dataset.cleaned_data)
+        response = s3.get_object(Bucket=S3_BUCKET, Key=dataset.s3_key_cleaned)
+        content = response["Body"].read()
+        encodings = ["utf-8", "iso-8859-1", "latin1", "cp1252"]
+        df = None
+        for encoding in encodings:
+            try:
+                df = pd.read_csv(
+                    io.StringIO(content.decode(encoding, errors="replace"))
+                )
+                logger.info(
+                    f"Loaded CSV {dataset.s3_key_cleaned} with encoding {encoding}"
+                )
+                break
+            except Exception as e:
+                logger.warning(
+                    f"Failed with encoding {encoding} for {dataset.s3_key_cleaned}: {str(e)}"
+                )
+        if df is None:
+            raise Exception("Failed to parse CSV with any encoding")
         if column_name not in df.columns:
             raise HTTPException(
                 status_code=400, detail=f"Column '{column_name}' not found"
@@ -95,6 +128,9 @@ async def get_column_unique_values(
         unique_count = df[column_name].dropna().nunique()
         return {"unique_count": unique_count}
     except Exception as e:
+        logger.error(
+            f"Failed to fetch unique values for dataset {dataset_id}, column {column_name}: {str(e)}"
+        )
         raise HTTPException(
             status_code=400, detail=f"Error processing column: {str(e)}"
         )
