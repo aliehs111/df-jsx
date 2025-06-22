@@ -1,5 +1,4 @@
 # server/routers/datasets.py
-from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,13 +20,10 @@ S3_BUCKET = "dfjsx-uploads"
 
 @router.get(
     "/cleaned",
-    response_model=List[DatasetSummary],
+    response_model=list[DatasetSummary],
     dependencies=[Depends(current_user)],
 )
 async def list_cleaned_datasets(db: AsyncSession = Depends(get_async_db)):
-    """
-    Return datasets with has_cleaned_data=True and s3_key_cleaned not null.
-    """
     try:
         stmt = select(DatasetModel).filter(
             DatasetModel.has_cleaned_data == True, DatasetModel.s3_key_cleaned != None
@@ -91,16 +87,15 @@ async def get_dataset_columns(
 async def get_column_unique_values(
     dataset_id: int, column_name: str, db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Return the number of unique values in a specified column of cleaned data.
-    """
     result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
     if not dataset.has_cleaned_data or not dataset.s3_key_cleaned:
-        raise HTTPException(status_code=400, detail="No cleaned data available")
-
+        raise HTTPException(
+            status_code=400,
+            detail="No cleaned data available. Please clean the dataset in Data Cleaning.",
+        )
     try:
         response = s3.get_object(Bucket=S3_BUCKET, Key=dataset.s3_key_cleaned)
         content = response["Body"].read()
@@ -132,5 +127,6 @@ async def get_column_unique_values(
             f"Failed to fetch unique values for dataset {dataset_id}, column {column_name}: {str(e)}"
         )
         raise HTTPException(
-            status_code=400, detail=f"Error processing column: {str(e)}"
+            status_code=400,
+            detail=f"Failed to load column data: {str(e)}. Please ensure the dataset is cleaned in Data Cleaning.",
         )

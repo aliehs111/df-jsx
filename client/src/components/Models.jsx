@@ -70,7 +70,7 @@ export default function Models() {
           setResult({
             error:
               data.detail ||
-              "Failed to load dataset columns. Please ensure the dataset is properly cleaned.",
+              "Failed to load dataset columns. Please ensure the dataset is properly cleaned in Data Cleaning.",
           });
           return;
         }
@@ -79,13 +79,15 @@ export default function Models() {
         setColumns(Array.isArray(data.columns) ? data.columns : []);
         setSelectedTarget("");
         setTargetUniqueCount(null);
-        setResult(null); // Clear error when columns load
+        setResult(null);
       } catch (err) {
         console.error("Failed to fetch columns", err);
         setColumns([]);
         setSelectedTarget("");
         setTargetUniqueCount(null);
-        setResult({ error: `Failed to load columns: ${err.message}` });
+        setResult({
+          error: `Failed to load columns: ${err.message}. Please check Data Cleaning.`,
+        });
       }
     };
     fetchColumns();
@@ -405,7 +407,7 @@ export default function Models() {
                 }
                 onLoad={() =>
                   console.log("Debug: Plot image loaded successfully")
-                } // Add load confirmation
+                }
               />
             </>
           ) : (
