@@ -24,6 +24,15 @@ from server.models import Dataset as DatasetModel
 from server.auth.userroutes import current_user
 from textblob import TextBlob
 
+from fastapi.responses import JSONResponse
+
+def json_error(status: int, message: str, suggestion: str = None):
+    payload = {"error": message}
+    if suggestion:
+        payload["suggestion"] = suggestion
+    return JSONResponse(status_code=status, content=payload)
+
+
 
 router = APIRouter(prefix="/models", tags=["models"])
 logger = logging.getLogger("server.main")
@@ -379,11 +388,14 @@ async def run_model(
             error_payload["suggestion"] = suggestion
         return error_payload
 
-    if not dataset_id or not model_name:
-        raise HTTPException(
-            status_code=400,
-            detail=format_error("Missing dataset_id or model_name")
-        )
+        if not dataset_id or not model_name:
+            return json_error(
+            400,
+            "Missing dataset_id or model_name",
+            "You must select a dataset and a model before running."
+    )
+
+
 
     # Fetch dataset
     result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))

@@ -197,11 +197,24 @@ export default function Models() {
       console.log("Debug: Sending payload:", payload);
       const res = await fetch("/api/models/run", {
         method: "POST",
-        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+
+      const text = await res.text(); // always read as text first
+
+      let data;
+      try {
+        data = JSON.parse(text); // try to parse JSON
+      } catch {
+        console.error("Non-JSON response:", text.slice(0, 200));
+        alert(
+          "Backend returned an error page instead of JSON.\n" +
+            text.slice(0, 200)
+        );
+        return; // stop here so UI doesn't crash
+      }
+
       console.log("Debug: Model run response:", data);
       if (!res.ok) {
         console.error("🛑 POST /api/models/run failed:", res.status, data);
