@@ -21,3 +21,4 @@ seaborn==0.13.2
 sqlalchemy==2.0.40
 uvicorn==0.34.1
 setuptools==75.8.0
+textblob

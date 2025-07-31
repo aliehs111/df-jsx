@@ -7,12 +7,18 @@ export default function Models() {
   const [selectedModel, setSelectedModel] = useState("RandomForest");
   const [result, setResult] = useState(null);
   const [columns, setColumns] = useState([]);
+  const [stringColumns, setStringColumns] = useState([]); // For Sentiment text columns
   const [selectedTarget, setSelectedTarget] = useState("");
   const [nEstimators, setNEstimators] = useState(100);
   const [maxDepth, setMaxDepth] = useState("");
   const [C, setC] = useState(1.0);
   const [targetUniqueCount, setTargetUniqueCount] = useState(null);
-  const models = ["RandomForest", "PCA_KMeans", "LogisticRegression"];
+  const models = [
+    "RandomForest",
+    "PCA_KMeans",
+    "LogisticRegression",
+    "Sentiment",
+  ];
   const [nClusters, setNClusters] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -48,6 +54,7 @@ export default function Models() {
     const fetchColumns = async () => {
       if (!selectedDataset) {
         setColumns([]);
+        setStringColumns([]);
         setSelectedTarget("");
         setTargetUniqueCount(null);
         return;
@@ -65,6 +72,7 @@ export default function Models() {
           const data = await res.json();
           console.error("Failed to fetch columns:", res.status, data);
           setColumns([]);
+          setStringColumns([]);
           setSelectedTarget("");
           setTargetUniqueCount(null);
           setResult({
@@ -77,12 +85,16 @@ export default function Models() {
         const data = await res.json();
         console.log("Debug: Fetched columns:", data);
         setColumns(Array.isArray(data.columns) ? data.columns : []);
+        // TODO: Backend should return dtypes; for now, assume all cols valid for Sentiment
+        // Replace with API call to filter string columns if available
+        setStringColumns(data.columns); // Update when backend provides dtypes
         setSelectedTarget("");
         setTargetUniqueCount(null);
         setResult(null);
       } catch (err) {
         console.error("Failed to fetch columns", err);
         setColumns([]);
+        setStringColumns([]);
         setSelectedTarget("");
         setTargetUniqueCount(null);
         setResult({
@@ -95,7 +107,11 @@ export default function Models() {
 
   useEffect(() => {
     const fetchUniqueCount = async () => {
-      if (!selectedDataset || !selectedTarget) {
+      if (
+        !selectedDataset ||
+        !selectedTarget ||
+        selectedModel === "Sentiment"
+      ) {
         setTargetUniqueCount(null);
         return;
       }
@@ -127,21 +143,25 @@ export default function Models() {
       }
     };
     fetchUniqueCount();
-  }, [selectedDataset, selectedTarget, navigate]);
+  }, [selectedDataset, selectedTarget, selectedModel, navigate]);
 
   const isTargetValid =
     selectedModel === "PCA_KMeans" ||
+    selectedModel === "Sentiment" || // Sentiment requires text column, no unique count check
     (selectedTarget && targetUniqueCount >= 2);
 
   const handleRunModel = async () => {
     if (!selectedDataset || !selectedModel) return;
     if (
       (selectedModel === "RandomForest" ||
-        selectedModel === "LogisticRegression") &&
+        selectedModel === "LogisticRegression" ||
+        selectedModel === "Sentiment") &&
       !selectedTarget
     ) {
       setResult({
-        error: "Please select a target column for classification models.",
+        error: `Please select a ${
+          selectedModel === "Sentiment" ? "text" : "target"
+        } column for this model.`,
       });
       return;
     }
@@ -171,6 +191,8 @@ export default function Models() {
         payload.C = C;
       } else if (selectedModel === "PCA_KMeans") {
         payload.n_clusters = nClusters;
+      } else if (selectedModel === "Sentiment") {
+        payload.target_column = selectedTarget;
       }
       console.log("Debug: Sending payload:", payload);
       const res = await fetch("/api/models/run", {
@@ -197,7 +219,7 @@ export default function Models() {
 
   return (
     <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">Run Pretrained Models</h1>
+      <h1 className="text-3xl font-bold mb-6">Run Models</h1>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div>
           <h2 className="text-lg font-semibold mb-2">
@@ -234,20 +256,28 @@ export default function Models() {
                   selectedModel === model ? "bg-green-100" : ""
                 }`}
                 onClick={() => setSelectedModel(model)}
+                title={
+                  model === "Sentiment"
+                    ? "Analyzes text sentiment (e.g., positive/negative) in a column using a Hugging Face model on AWS SageMaker."
+                    : ""
+                }
               >
                 {model}
               </li>
             ))}
           </ul>
           {(selectedModel === "RandomForest" ||
-            selectedModel === "LogisticRegression") &&
+            selectedModel === "LogisticRegression" ||
+            selectedModel === "Sentiment") &&
             columns.length > 0 && (
               <div className="bg-amber-50 border border-yellow-300 p-4 rounded shadow mb-4">
                 <label
                   htmlFor="target"
                   className="block text-sm font-semibold text-yellow-800"
                 >
-                  🎯 Target Column
+                  {selectedModel === "Sentiment"
+                    ? "📝 Text Column"
+                    : "🎯 Target Column"}
                 </label>
                 <select
                   id="target"
@@ -255,8 +285,14 @@ export default function Models() {
                   onChange={(e) => setSelectedTarget(e.target.value)}
                   className="mt-1 block w-full rounded-md border-yellow-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
                 >
-                  <option value="">Select a target column</option>
-                  {columns.map((col) => (
+                  <option value="">
+                    Select a {selectedModel === "Sentiment" ? "text" : "target"}{" "}
+                    column
+                  </option>
+                  {(selectedModel === "Sentiment"
+                    ? stringColumns
+                    : columns
+                  ).map((col) => (
                     <option key={col} value={col}>
                       {col}
                     </option>
@@ -264,7 +300,8 @@ export default function Models() {
                 </select>
                 {selectedTarget &&
                   targetUniqueCount !== null &&
-                  targetUniqueCount < 2 && (
+                  targetUniqueCount < 2 &&
+                  selectedModel !== "Sentiment" && (
                     <p className="mt-2 text-red-600 text-sm">
                       ⚠️ Target column has only {targetUniqueCount} class(es).
                       At least 2 are required.
@@ -374,7 +411,8 @@ export default function Models() {
                 result.error.includes("NoSuchKey") ||
                 result.error.includes("Missing target_column") ||
                 result.error.includes("No valid numeric feature columns") ||
-                result.error.includes("Empty dataset")) && (
+                result.error.includes("Empty dataset") ||
+                result.error.includes("No text data")) && (
                 <span className="block mt-2 text-sm">
                   {result.error.includes("NoSuchKey")
                     ? "The cleaned dataset file is missing. Please re-clean the dataset in the Data Cleaning page or upload a new file."
@@ -384,6 +422,8 @@ export default function Models() {
                     ? "Please select a valid target column for this model."
                     : result.error.includes("Empty dataset")
                     ? "The dataset is empty. Please upload a valid dataset or check your cleaning steps."
+                    : result.error.includes("No text data")
+                    ? "No valid text in this column. Please select a different text column or clean your data."
                     : "The dataset lacks sufficient numeric features. Try cleaning or transforming the data in the Data Cleaning page."}{" "}
                   Ask the chatbot for guidance on preparing your dataset!
                 </span>
@@ -418,36 +458,184 @@ export default function Models() {
               </p>
             )
           )}
-          {result.n_clusters && (
-            <p className="mb-2">
-              <strong>Clusters:</strong> {result.n_clusters}
-            </p>
+          {result.model === "PCA_KMeans" && (
+            <>
+              {result.n_clusters && (
+                <p className="mb-2">
+                  <strong>Clusters:</strong> {result.n_clusters}
+                </p>
+              )}
+              {result.cluster_counts && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Cluster Counts:</h3>
+                  <ul className="list-disc list-inside">
+                    {Object.entries(result.cluster_counts).map(
+                      ([cluster, count]) => (
+                        <li key={cluster}>
+                          Cluster {cluster}: {count}
+                        </li>
+                      )
+                    )}
+                  </ul>
+                </div>
+              )}
+              {result.pca_variance_ratio && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Explained Variance (PCA):</h3>
+                  <ul className="list-disc list-inside">
+                    {result.pca_variance_ratio.map((val, i) => (
+                      <li key={i}>
+                        PC{i + 1}: {(val * 100).toFixed(2)}%
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
-          {result.cluster_counts && (
-            <div className="mb-4">
-              <h3 className="font-medium">Cluster Counts:</h3>
-              <ul className="list-disc list-inside">
-                {Object.entries(result.cluster_counts).map(
-                  ([cluster, count]) => (
-                    <li key={cluster}>
-                      Cluster {cluster}: {count}
-                    </li>
-                  )
-                )}
-              </ul>
-            </div>
+          {result.model === "RandomForest" && (
+            <>
+              {result.class_counts && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Class Counts:</h3>
+                  <ul className="list-disc list-inside">
+                    {Object.entries(result.class_counts).map(([cls, count]) => (
+                      <li key={cls}>
+                        Class {cls}: {count}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {result.classification_report && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Classification Report:</h3>
+                  <pre className="text-sm bg-gray-50 p-2 rounded">
+                    {JSON.stringify(result.classification_report, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {result.confusion_matrix && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Confusion Matrix:</h3>
+                  <pre className="text-sm bg-gray-50 p-2 rounded">
+                    {JSON.stringify(result.confusion_matrix, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {result.feature_importances && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Feature Importances:</h3>
+                  <ul className="list-disc list-inside">
+                    {result.feature_importances.map((val, i) => (
+                      <li key={i}>
+                        Feature {i + 1}: {val.toFixed(4)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
-          {result.pca_variance_ratio && (
-            <div className="mb-4">
-              <h3 className="font-medium">Explained Variance (PCA):</h3>
-              <ul className="list-disc list-inside">
-                {result.pca_variance_ratio.map((val, i) => (
-                  <li key={i}>
-                    PC{i + 1}: {(val * 100).toFixed(2)}%
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {result.model === "LogisticRegression" && (
+            <>
+              {result.class_counts && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Class Counts:</h3>
+                  <ul className="list-disc list-inside">
+                    {Object.entries(result.class_counts).map(([cls, count]) => (
+                      <li key={cls}>
+                        Class {cls}: {count}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {result.classification_report && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Classification Report:</h3>
+                  <pre className="text-sm bg-gray-50 p-2 rounded">
+                    {JSON.stringify(result.classification_report, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {result.confusion_matrix && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Confusion Matrix:</h3>
+                  <pre className="text-sm bg-gray-50 p-2 rounded">
+                    {JSON.stringify(result.confusion_matrix, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {result.coefficients && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Coefficients:</h3>
+                  <pre className="text-sm bg-gray-50 p-2 rounded">
+                    {JSON.stringify(result.coefficients, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </>
+          )}
+          {result.model === "Sentiment" && (
+            <>
+              {result.num_texts && (
+                <p className="mb-2">
+                  <strong>Processed Texts:</strong> {result.num_texts}
+                </p>
+              )}
+              {result.sentiment_counts && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Sentiment Counts:</h3>
+                  <ul className="list-disc list-inside">
+                    {Object.entries(result.sentiment_counts).map(
+                      ([label, count]) => (
+                        <li key={label}>
+                          {label}: {count}
+                        </li>
+                      )
+                    )}
+                  </ul>
+                </div>
+              )}
+              {result.sample_results && (
+                <div className="mb-4 overflow-x-auto">
+                  <h3 className="font-medium">Sample Results:</h3>
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Text
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Sentiment
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Score
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {result.sample_results.map(
+                        ([text, label, score], idx) => (
+                          <tr key={idx}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {text.slice(0, 100)}...
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {label}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {score.toFixed(2)}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
           {result.message && (
             <p className="mt-2 text-sm text-gray-600">✅ {result.message}</p>

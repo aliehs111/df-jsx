@@ -16,10 +16,14 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
 from pydantic import BaseModel
 import logging
-
+import os  # Added for os.getenv
+import json  # Already present, but ensuring
+from botocore.config import Config
 from server.database import get_async_db
 from server.models import Dataset as DatasetModel
 from server.auth.userroutes import current_user
+from textblob import TextBlob
+
 
 router = APIRouter(prefix="/models", tags=["models"])
 logger = logging.getLogger("server.main")
@@ -229,6 +233,128 @@ def run_model_logistic_regression(
     }
 
 
+# New function: Run Hugging Face sentiment model via SageMaker
+def run_model_sentiment(df: pd.DataFrame, text_column: str):
+    logger.info(f"Sentiment: Text column '{text_column}', columns: {df.columns.tolist()}")
+    if text_column not in df.columns:
+        raise ValueError(f"Missing '{text_column}' column.")
+    # Preprocess: keep longer texts (2000 chars), minimal cleaning
+    texts = df[text_column].dropna().astype(str).apply(lambda x: x[:2000].strip("!?.")).tolist()
+    if not texts:
+        raise ValueError("No text data in the column.")
+    logger.info(f"Sentiment: Processing {len(texts)} texts")
+
+    if os.getenv('LOCAL_MODE', 'false').lower() == 'true':
+        logger.info("Using local TextBlob fallback for testing")
+        labels, scores = [], []
+        for text in texts:
+            analysis = TextBlob(text)
+            polarity = analysis.sentiment.polarity
+            if polarity > 0.3:  # Stricter threshold for POSITIVE
+                labels.append('POSITIVE')
+                scores.append(polarity)
+            elif polarity < -0.3:  # Stricter for NEGATIVE
+                labels.append('NEGATIVE')
+                scores.append(-polarity)
+            else:
+                labels.append('NEUTRAL')
+                scores.append(0.5)
+        sentiment_counts = pd.Series(labels).value_counts().to_dict()
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.bar(sentiment_counts.keys(), sentiment_counts.values())
+        ax.set_title("Sentiment Distribution (Local Fallback)")
+        ax.set_xlabel("Sentiment Label")
+        ax.set_ylabel("Count")
+        buf = io.BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format="png")
+        plt.close(fig)
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode("utf-8")
+        return {
+            "input_shape": [int(x) for x in df.shape],
+            "num_texts": len(texts),
+            "sentiment_counts": {k: int(v) for k, v in sentiment_counts.items()},
+            "sample_results": list(zip(texts[:10], labels[:10], scores[:10])),
+            "image_base64": img_base64,
+        }
+
+    # SageMaker client
+    sagemaker_runtime = boto3.client(
+        'sagemaker-runtime',
+        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+        region_name=os.getenv('AWS_REGION'),
+        config=Config(connect_timeout=60, read_timeout=300, retries={'max_attempts': 3})
+    )
+    endpoint_name = os.getenv('SAGEMAKER_ENDPOINT_NAME')
+    if not endpoint_name:
+        raise ValueError("SAGEMAKER_ENDPOINT_NAME not set in environment.")
+
+    # Warm-up
+    try:
+        dummy_payload = json.dumps({"inputs": ["Test sentence for warm-up."]})
+        sagemaker_runtime.invoke_endpoint(
+            EndpointName=endpoint_name,
+            Body=dummy_payload,
+            ContentType='application/json',
+            Accept='application/json'
+        )
+        logger.info("Endpoint warmed up successfully.")
+    except Exception as e:
+        logger.warning(f"Warm-up failed: {str(e)}")
+
+    # Batch processing
+    batch_size = 20
+    labels, scores = [], []
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i:i + batch_size]
+        logger.info(f"Processing batch {i // batch_size + 1}/{len(texts) // batch_size + 1}")
+        payload = json.dumps({"inputs": batch_texts})
+        params = {
+            'EndpointName': endpoint_name,
+            'Body': payload,
+            'ContentType': 'application/json',
+            'Accept': 'application/json'
+        }
+        try:
+            response = sagemaker_runtime.invoke_endpoint(**params)
+            batch_result = json.loads(response['Body'].read().decode('utf-8'))
+            # Handle both DistilBERT (POSITIVE/NEGATIVE) and RoBERTa (LABEL_0/LABEL_1/LABEL_2)
+            label_map = {'LABEL_0': 'POSITIVE', 'LABEL_1': 'NEGATIVE', 'LABEL_2': 'NEUTRAL'}
+            batch_labels = [label_map.get(r['label'], r['label']) for r in batch_result]
+            batch_scores = [r['score'] if r['score'] > 0.7 else 0.5 for r in batch_result]  # Stricter threshold
+            labels.extend(batch_labels)
+            scores.extend(batch_scores)
+        except Exception as e:
+            logger.error(f"SageMaker batch {i // batch_size + 1} failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"SageMaker batch failed: {str(e)}")
+
+    # Compute distribution
+    sentiment_counts = pd.Series(labels).value_counts().to_dict()
+
+    # Generate bar chart
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.bar(sentiment_counts.keys(), sentiment_counts.values())
+    ax.set_title("Sentiment Distribution")
+    ax.set_xlabel("Sentiment Label")
+    ax.set_ylabel("Count")
+    buf = io.BytesIO()
+    plt.tight_layout()
+    plt.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+    img_base64 = base64.b64encode(buf.read()).decode("utf-8")
+
+    return {
+        "input_shape": [int(x) for x in df.shape],
+        "num_texts": len(texts),
+        "sentiment_counts": {k: int(v) for k, v in sentiment_counts.items()},
+        "sample_results": list(zip(texts[:10], labels[:10], scores[:10])),
+        "image_base64": img_base64,
+    }
+
+
 @router.post("/run")
 async def run_model(
     payload: ModelRunRequest,
@@ -246,16 +372,32 @@ async def run_model(
     C = payload.C
     n_clusters = payload.n_clusters
 
+    # helper to standardize error responses
+    def format_error(message: str, suggestion: str = None):
+        error_payload = {"error": message}
+        if suggestion:
+            error_payload["suggestion"] = suggestion
+        return error_payload
+
     if not dataset_id or not model_name:
-        raise HTTPException(status_code=400, detail="Missing dataset_id or model_name")
+        raise HTTPException(
+            status_code=400,
+            detail=format_error("Missing dataset_id or model_name")
+        )
 
     # Fetch dataset
     result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
     dataset = result.scalar_one_or_none()
     if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(
+            status_code=404,
+            detail=format_error("Dataset not found")
+        )
     if not dataset.has_cleaned_data or not dataset.s3_key_cleaned:
-        raise HTTPException(status_code=400, detail="No cleaned data available")
+        raise HTTPException(
+            status_code=400,
+            detail=format_error("No cleaned data available", "Run a cleaning step first.")
+        )
 
     # Load cleaned data from S3
     try:
@@ -265,9 +407,7 @@ async def run_model(
         df = None
         for encoding in encodings:
             try:
-                df = pd.read_csv(
-                    io.StringIO(content.decode(encoding, errors="replace"))
-                )
+                df = pd.read_csv(io.StringIO(content.decode(encoding, errors="replace")))
                 logger.info(
                     f"Loaded CSV {dataset.s3_key_cleaned} with encoding {encoding}"
                 )
@@ -279,47 +419,64 @@ async def run_model(
         if df is None:
             raise Exception("Failed to parse CSV with any encoding")
     except Exception as e:
-        logger.error(
-            f"Failed to load CSV {dataset.s3_key_cleaned} for dataset {dataset_id}: {str(e)}"
-        )
+        logger.error(f"Failed to load CSV {dataset.s3_key_cleaned}: {str(e)}")
         raise HTTPException(
-            status_code=400, detail=f"Failed to load cleaned data: {str(e)}"
+            status_code=400,
+            detail=format_error("Failed to load cleaned data", "Check your CSV file format.")
         )
 
     if df.empty:
-        raise HTTPException(status_code=400, detail="Empty dataset")
+        raise HTTPException(
+            status_code=400,
+            detail=format_error("Empty dataset", "Upload a dataset with rows.")
+        )
 
     try:
         if model_name == "PCA_KMeans":
             output = run_model_pca_kmeans(df, n_clusters=n_clusters)
         elif model_name == "RandomForest":
             if not target_column:
-                raise HTTPException(status_code=400, detail="Missing target_column")
-            output = run_model_random_forest(
-                df,
-                target_column=target_column,
-                n_estimators=n_estimators,
-                max_depth=max_depth,
-            )
+                raise HTTPException(
+                    status_code=400,
+                    detail=format_error("Missing target_column", "Pick a column with categorical values.")
+                )
+            output = run_model_random_forest(df, target_column, n_estimators, max_depth)
         elif model_name == "LogisticRegression":
             if not target_column:
-                raise HTTPException(status_code=400, detail="Missing target_column")
-            output = run_model_logistic_regression(
-                df, target_column=target_column, C=C, max_iter=1000
-            )
+                raise HTTPException(
+                    status_code=400,
+                    detail=format_error("Missing target_column", "Pick a column with at least 2 unique values.")
+                )
+            output = run_model_logistic_regression(df, target_column, C=C, max_iter=1000)
+        elif model_name == "Sentiment":
+            if not target_column:
+                raise HTTPException(
+                    status_code=400,
+                    detail=format_error("Missing text_column for Sentiment", "Pick a column that contains text data.")
+                )
+            output = run_model_sentiment(df, text_column=target_column)
         else:
             raise HTTPException(
-                status_code=400, detail=f"Model '{model_name}' not implemented"
+                status_code=400,
+                detail=format_error(f"Model '{model_name}' not implemented")
             )
+
         return {
             "dataset_id": int(dataset_id),
             "model": model_name,
             "status": "success",
             **output,
         }
+
     except ValueError as e:
         logger.error(f"Model {model_name} failed for dataset {dataset_id}: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(
+            status_code=400,
+            detail=format_error(str(e), "Try cleaning missing values or picking another dataset/model.")
+        )
     except Exception as e:
         logger.error(f"Model {model_name} failed for dataset {dataset_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Model run failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=format_error("Model run failed unexpectedly", "Please try again or choose another model.")
+        )
