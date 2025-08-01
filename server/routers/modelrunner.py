@@ -26,6 +26,14 @@ from textblob import TextBlob
 
 from fastapi.responses import JSONResponse
 
+MODEL_ENDPOINTS = {
+    "Sentiment": os.getenv("SAGEMAKER_SENTIMENT_ENDPOINT"),
+    "Toxicity": os.getenv("SAGEMAKER_TOXICITY_ENDPOINT"),
+    "NER": os.getenv("SAGEMAKER_NER_ENDPOINT"),
+}
+
+
+
 def json_error(status: int, message: str, suggestion: str = None):
     payload = {"error": message}
     if suggestion:
@@ -48,6 +56,22 @@ class ModelRunRequest(BaseModel):
     max_depth: int | None = None
     C: float | None = 1.0
     n_clusters: int | None = 3
+
+@router.get("/available")
+async def get_available_models():
+    return {
+        "models": [
+            {"name": "RandomForest", "description": "Random forest classification"},
+            {"name": "PCA_KMeans", "description": "Clustering using PCA + KMeans"},
+            {"name": "LogisticRegression", "description": "Binary/multi-class logistic regression"},
+            {"name": "Sentiment", "description": "Text sentiment analysis via SageMaker"},
+            {"name": "Toxicity", "description": "Detect toxic vs non-toxic language via SageMaker"},
+            {"name": "NER", "description": "Named entity recognition via SageMaker"},
+        ]
+    }
+
+
+
 
 
 # server/routers/modelrunner.py (only run_model_pca_kmeans shown, keep others as-is)
@@ -242,126 +266,111 @@ def run_model_logistic_regression(
     }
 
 
-# New function: Run Hugging Face sentiment model via SageMaker
-def run_model_sentiment(df: pd.DataFrame, text_column: str):
-    logger.info(f"Sentiment: Text column '{text_column}', columns: {df.columns.tolist()}")
+def run_model_sagemaker(df: pd.DataFrame, text_column: str, model_name: str):
+    logger.info(f"{model_name}: Text column '{text_column}', columns: {df.columns.tolist()}")
+
     if text_column not in df.columns:
         raise ValueError(f"Missing '{text_column}' column.")
-    # Preprocess: keep longer texts (2000 chars), minimal cleaning
+
     texts = df[text_column].dropna().astype(str).apply(lambda x: x[:2000].strip("!?.")).tolist()
     if not texts:
         raise ValueError("No text data in the column.")
-    logger.info(f"Sentiment: Processing {len(texts)} texts")
 
-    if os.getenv('LOCAL_MODE', 'false').lower() == 'true':
-        logger.info("Using local TextBlob fallback for testing")
-        labels, scores = [], []
-        for text in texts:
-            analysis = TextBlob(text)
-            polarity = analysis.sentiment.polarity
-            if polarity > 0.3:  # Stricter threshold for POSITIVE
-                labels.append('POSITIVE')
-                scores.append(polarity)
-            elif polarity < -0.3:  # Stricter for NEGATIVE
-                labels.append('NEGATIVE')
-                scores.append(-polarity)
-            else:
-                labels.append('NEUTRAL')
-                scores.append(0.5)
+    logger.info(f"{model_name}: Processing {len(texts)} texts")
+
+    # Resolve endpoint
+    endpoint_name = MODEL_ENDPOINTS.get(model_name) if 'MODEL_ENDPOINTS' in globals() else None
+    if not endpoint_name:
+        endpoint_name = os.getenv("SAGEMAKER_ENDPOINT_NAME")
+    if not endpoint_name:
+        raise ValueError(f"No SageMaker endpoint configured for model {model_name}")
+
+    sagemaker_runtime = boto3.client(
+        'sagemaker-runtime',
+        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+        region_name=os.getenv("AWS_REGION", "us-east-1"),
+        config=Config(connect_timeout=60, read_timeout=300, retries={'max_attempts': 3})
+    )
+
+    labels, scores = [], []
+    all_entities = []
+    batch_size = 20
+
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i:i+batch_size]
+        logger.info(f"{model_name}: Processing batch {i // batch_size + 1}/{-(-len(texts)//batch_size)}")
+
+        payload = json.dumps({"inputs": batch_texts})
+        try:
+            response = sagemaker_runtime.invoke_endpoint(
+                EndpointName=endpoint_name,
+                ContentType="application/json",
+                Body=payload,
+                Accept="application/json"
+            )
+            batch_result = json.loads(response['Body'].read().decode('utf-8'))
+
+            if model_name == "Sentiment":
+                label_map = {'LABEL_0': 'NEGATIVE', 'LABEL_1': 'NEUTRAL', 'LABEL_2': 'POSITIVE'}
+                labels.extend([label_map.get(r['label'], r['label']) for r in batch_result])
+                scores.extend([r['score'] for r in batch_result])
+
+            elif model_name == "Toxicity":
+                for r in batch_result:
+                    toxic_score = max((cls['score'] for cls in r if cls['label'].lower() == 'toxic'), default=0.0)
+                    labels.append('TOXIC' if toxic_score > 0.5 else 'NON_TOXIC')
+                    scores.append(toxic_score)
+
+            elif model_name == "NER":
+                for entities in batch_result:
+                    entity_list = [
+                        {"word": e['word'], "entity": e['entity'], "score": e['score']}
+                        for e in entities
+                    ]
+                    all_entities.append(entity_list)
+
+        except Exception as e:
+            logger.error(f"SageMaker batch {i//batch_size+1} failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"SageMaker batch failed: {str(e)}")
+
+    if model_name == "Sentiment":
         sentiment_counts = pd.Series(labels).value_counts().to_dict()
         fig, ax = plt.subplots(figsize=(6, 4))
         ax.bar(sentiment_counts.keys(), sentiment_counts.values())
-        ax.set_title("Sentiment Distribution (Local Fallback)")
-        ax.set_xlabel("Sentiment Label")
-        ax.set_ylabel("Count")
+        ax.set_title("Sentiment Distribution")
         buf = io.BytesIO()
         plt.tight_layout()
         plt.savefig(buf, format="png")
         plt.close(fig)
         buf.seek(0)
         img_base64 = base64.b64encode(buf.read()).decode("utf-8")
+
         return {
-            "input_shape": [int(x) for x in df.shape],
+            "input_shape": list(df.shape),
             "num_texts": len(texts),
             "sentiment_counts": {k: int(v) for k, v in sentiment_counts.items()},
             "sample_results": list(zip(texts[:10], labels[:10], scores[:10])),
             "image_base64": img_base64,
         }
 
-    # SageMaker client
-    sagemaker_runtime = boto3.client(
-        'sagemaker-runtime',
-        aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-        aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-        region_name=os.getenv('AWS_REGION'),
-        config=Config(connect_timeout=60, read_timeout=300, retries={'max_attempts': 3})
-    )
-    endpoint_name = os.getenv('SAGEMAKER_ENDPOINT_NAME')
-    if not endpoint_name:
-        raise ValueError("SAGEMAKER_ENDPOINT_NAME not set in environment.")
-
-    # Warm-up
-    try:
-        dummy_payload = json.dumps({"inputs": ["Test sentence for warm-up."]})
-        sagemaker_runtime.invoke_endpoint(
-            EndpointName=endpoint_name,
-            Body=dummy_payload,
-            ContentType='application/json',
-            Accept='application/json'
-        )
-        logger.info("Endpoint warmed up successfully.")
-    except Exception as e:
-        logger.warning(f"Warm-up failed: {str(e)}")
-
-    # Batch processing
-    batch_size = 20
-    labels, scores = [], []
-    for i in range(0, len(texts), batch_size):
-        batch_texts = texts[i:i + batch_size]
-        logger.info(f"Processing batch {i // batch_size + 1}/{len(texts) // batch_size + 1}")
-        payload = json.dumps({"inputs": batch_texts})
-        params = {
-            'EndpointName': endpoint_name,
-            'Body': payload,
-            'ContentType': 'application/json',
-            'Accept': 'application/json'
+    elif model_name == "Toxicity":
+        toxicity_counts = pd.Series(labels).value_counts().to_dict()
+        return {
+            "input_shape": list(df.shape),
+            "num_texts": len(texts),
+            "toxicity_counts": {k: int(v) for k, v in toxicity_counts.items()},
+            "sample_results": list(zip(texts[:10], labels[:10], scores[:10])),
         }
-        try:
-            response = sagemaker_runtime.invoke_endpoint(**params)
-            batch_result = json.loads(response['Body'].read().decode('utf-8'))
-            # Handle both DistilBERT (POSITIVE/NEGATIVE) and RoBERTa (LABEL_0/LABEL_1/LABEL_2)
-            label_map = {'LABEL_0': 'POSITIVE', 'LABEL_1': 'NEGATIVE', 'LABEL_2': 'NEUTRAL'}
-            batch_labels = [label_map.get(r['label'], r['label']) for r in batch_result]
-            batch_scores = [r['score'] if r['score'] > 0.7 else 0.5 for r in batch_result]  # Stricter threshold
-            labels.extend(batch_labels)
-            scores.extend(batch_scores)
-        except Exception as e:
-            logger.error(f"SageMaker batch {i // batch_size + 1} failed: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"SageMaker batch failed: {str(e)}")
 
-    # Compute distribution
-    sentiment_counts = pd.Series(labels).value_counts().to_dict()
+    elif model_name == "NER":
+        return {
+            "input_shape": list(df.shape),
+            "num_texts": len(texts),
+            "entities_sample": all_entities[:5],  # sample first 5 for display
+        }
 
-    # Generate bar chart
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.bar(sentiment_counts.keys(), sentiment_counts.values())
-    ax.set_title("Sentiment Distribution")
-    ax.set_xlabel("Sentiment Label")
-    ax.set_ylabel("Count")
-    buf = io.BytesIO()
-    plt.tight_layout()
-    plt.savefig(buf, format="png")
-    plt.close(fig)
-    buf.seek(0)
-    img_base64 = base64.b64encode(buf.read()).decode("utf-8")
 
-    return {
-        "input_shape": [int(x) for x in df.shape],
-        "num_texts": len(texts),
-        "sentiment_counts": {k: int(v) for k, v in sentiment_counts.items()},
-        "sample_results": list(zip(texts[:10], labels[:10], scores[:10])),
-        "image_base64": img_base64,
-    }
 
 
 @router.post("/run")
@@ -388,14 +397,15 @@ async def run_model(
             error_payload["suggestion"] = suggestion
         return error_payload
 
-        if not dataset_id or not model_name:
-            return json_error(
-            400,
-            "Missing dataset_id or model_name",
-            "You must select a dataset and a model before running."
-    )
-
-
+    # 🚨 validate inputs here (not inside format_error)
+    if not dataset_id or not model_name:
+        raise HTTPException(
+            status_code=400,
+            detail=format_error(
+                "Missing dataset_id or model_name",
+                "You must select a dataset and a model before running."
+            ),
+        )
 
     # Fetch dataset
     result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
@@ -410,6 +420,7 @@ async def run_model(
             status_code=400,
             detail=format_error("No cleaned data available", "Run a cleaning step first.")
         )
+
 
     # Load cleaned data from S3
     try:
@@ -446,6 +457,7 @@ async def run_model(
     try:
         if model_name == "PCA_KMeans":
             output = run_model_pca_kmeans(df, n_clusters=n_clusters)
+
         elif model_name == "RandomForest":
             if not target_column:
                 raise HTTPException(
@@ -453,6 +465,7 @@ async def run_model(
                     detail=format_error("Missing target_column", "Pick a column with categorical values.")
                 )
             output = run_model_random_forest(df, target_column, n_estimators, max_depth)
+
         elif model_name == "LogisticRegression":
             if not target_column:
                 raise HTTPException(
@@ -460,18 +473,25 @@ async def run_model(
                     detail=format_error("Missing target_column", "Pick a column with at least 2 unique values.")
                 )
             output = run_model_logistic_regression(df, target_column, C=C, max_iter=1000)
-        elif model_name == "Sentiment":
+
+        # 👇 Replace single Sentiment branch with this
+        elif model_name in ["Sentiment", "Toxicity", "NER"]:
             if not target_column:
                 raise HTTPException(
                     status_code=400,
-                    detail=format_error("Missing text_column for Sentiment", "Pick a column that contains text data.")
+                    detail=format_error(
+                        f"Missing text_column for {model_name}",
+                        "Pick a column that contains text data."
+                    )
                 )
-            output = run_model_sentiment(df, text_column=target_column)
+            output = run_model_sagemaker(df, text_column=target_column, model_name=model_name)
+
         else:
             raise HTTPException(
                 status_code=400,
                 detail=format_error(f"Model '{model_name}' not implemented")
             )
+
 
         return {
             "dataset_id": int(dataset_id),

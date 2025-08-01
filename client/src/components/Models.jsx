@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 export default function Models() {
   const [datasets, setDatasets] = useState([]);
   const [selectedDataset, setSelectedDataset] = useState(null);
-  const [selectedModel, setSelectedModel] = useState("RandomForest");
+  const [selectedModel, setSelectedModel] = useState(null);
   const [result, setResult] = useState(null);
   const [columns, setColumns] = useState([]);
   const [stringColumns, setStringColumns] = useState([]); // For Sentiment text columns
@@ -13,12 +13,8 @@ export default function Models() {
   const [maxDepth, setMaxDepth] = useState("");
   const [C, setC] = useState(1.0);
   const [targetUniqueCount, setTargetUniqueCount] = useState(null);
-  const models = [
-    "RandomForest",
-    "PCA_KMeans",
-    "LogisticRegression",
-    "Sentiment",
-  ];
+  const [models, setModels] = useState([]);
+
   const [nClusters, setNClusters] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
@@ -49,6 +45,35 @@ export default function Models() {
     };
     fetchCleanedDatasets();
   }, [navigate]);
+
+  useEffect(() => {
+    const fetchModels = async () => {
+      try {
+        const res = await fetch("/api/models/available", {
+          method: "GET",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          console.error("Failed to fetch models:", res.status);
+          setModels([]);
+          return;
+        }
+        const data = await res.json();
+        console.log("Debug: Fetched available models:", data);
+        setModels(data.models || []);
+      } catch (err) {
+        console.error("Failed to fetch models", err);
+        setModels([]);
+      }
+    };
+    fetchModels();
+  }, []);
+
+  useEffect(() => {
+    if (models.length > 0 && !selectedModel) {
+      setSelectedModel(models[0].name);
+    }
+  }, [models, selectedModel]);
 
   useEffect(() => {
     const fetchColumns = async () => {
@@ -264,18 +289,14 @@ export default function Models() {
           <ul className="space-y-2 mb-4">
             {models.map((model) => (
               <li
-                key={model}
+                key={model.name}
                 className={`cursor-pointer p-2 rounded border hover:bg-green-50 ${
-                  selectedModel === model ? "bg-green-100" : ""
+                  selectedModel === model.name ? "bg-green-100" : ""
                 }`}
-                onClick={() => setSelectedModel(model)}
-                title={
-                  model === "Sentiment"
-                    ? "Analyzes text sentiment (e.g., positive/negative) in a column using a Hugging Face model on AWS SageMaker."
-                    : ""
-                }
+                onClick={() => setSelectedModel(model.name)}
+                title={model.description || ""}
               >
-                {model}
+                {model.name}
               </li>
             ))}
           </ul>
@@ -652,6 +673,131 @@ export default function Models() {
           )}
           {result.message && (
             <p className="mt-2 text-sm text-gray-600">✅ {result.message}</p>
+          )}
+          {result.model === "Toxicity" && (
+            <>
+              {result.num_texts && (
+                <p className="mb-2">
+                  <strong>Processed Texts:</strong> {result.num_texts}
+                </p>
+              )}
+              {result.toxicity_counts && (
+                <div className="mb-4">
+                  <h3 className="font-medium">Toxicity Counts:</h3>
+                  <ul className="list-disc list-inside">
+                    {Object.entries(result.toxicity_counts).map(
+                      ([label, count]) => (
+                        <li key={label}>
+                          {label}: {count}
+                        </li>
+                      )
+                    )}
+                  </ul>
+                </div>
+              )}
+              {result.image_base64 && (
+                <img
+                  src={`data:image/png;base64,${result.image_base64}`}
+                  alt="Toxicity Distribution"
+                  className="w-full max-w-lg mx-auto rounded-lg shadow-md mb-4"
+                  onError={() => console.error("Failed to load Toxicity plot")}
+                />
+              )}
+              {result.sample_results && (
+                <div className="mb-4 overflow-x-auto">
+                  <h3 className="font-medium">Sample Results:</h3>
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Text
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Label
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Score
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {result.sample_results.map(
+                        ([text, label, score], idx) => (
+                          <tr key={idx}>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {text.slice(0, 100)}...
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {label}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                              {score.toFixed(2)}
+                            </td>
+                          </tr>
+                        )
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {result.model === "NER" && (
+            <>
+              {result.num_texts && (
+                <p className="mb-2">
+                  <strong>Processed Texts:</strong> {result.num_texts}
+                </p>
+              )}
+              {result.image_base64 && (
+                <img
+                  src={`data:image/png;base64,${result.image_base64}`}
+                  alt="NER Entity Distribution"
+                  className="w-full max-w-lg mx-auto rounded-lg shadow-md mb-4"
+                  onError={() => console.error("Failed to load NER plot")}
+                />
+              )}
+              {result.entities_sample && result.entities_sample.length > 0 ? (
+                <div className="mb-4 overflow-x-auto">
+                  <h3 className="font-medium">Named Entities (Sample)</h3>
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Word
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Entity
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Score
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {result.entities_sample.flat().map((ent, idx) => (
+                        <tr key={idx}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {ent.word}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                            {ent.entity}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                            {ent.score.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-600">
+                  No entities detected in sample texts.
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
