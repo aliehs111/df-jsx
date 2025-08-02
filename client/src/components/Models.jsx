@@ -177,10 +177,13 @@ export default function Models() {
 
   const handleRunModel = async () => {
     if (!selectedDataset || !selectedModel) return;
+
+    // Validate required target column(s)
     if (
       (selectedModel === "RandomForest" ||
         selectedModel === "LogisticRegression" ||
-        selectedModel === "Sentiment") &&
+        selectedModel === "Sentiment" ||
+        selectedModel === "FeatureImportance") &&
       !selectedTarget
     ) {
       setResult({
@@ -190,6 +193,8 @@ export default function Models() {
       });
       return;
     }
+
+    // Extra check for classification models
     if (
       (selectedModel === "RandomForest" ||
         selectedModel === "LogisticRegression") &&
@@ -200,13 +205,25 @@ export default function Models() {
       });
       return;
     }
+
+    // TimeSeriesForecasting requires two columns
+    if (selectedModel === "TimeSeriesForecasting") {
+      if (!selectedTarget || !selectedTarget.includes("|")) {
+        setResult({
+          error:
+            "Please select both a date column and a value column for forecasting.",
+        });
+        return;
+      }
+    }
+
     setIsLoading(true);
     try {
       const payload = {
         dataset_id: selectedDataset,
         model_name: selectedModel,
-        n_clusters: nClusters,
       };
+
       if (selectedModel === "RandomForest") {
         payload.target_column = selectedTarget;
         payload.n_estimators = nEstimators;
@@ -218,8 +235,16 @@ export default function Models() {
         payload.n_clusters = nClusters;
       } else if (selectedModel === "Sentiment") {
         payload.target_column = selectedTarget;
+      } else if (selectedModel === "AnomalyDetection") {
+        // No target_column needed
+      } else if (selectedModel === "TimeSeriesForecasting") {
+        payload.target_column = selectedTarget; // formatted as "date|value"
+      } else if (selectedModel === "FeatureImportance") {
+        payload.target_column = selectedTarget;
       }
+
       console.log("Debug: Sending payload:", payload);
+
       const res = await fetch("/api/models/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -227,17 +252,16 @@ export default function Models() {
       });
 
       const text = await res.text(); // always read as text first
-
       let data;
       try {
-        data = JSON.parse(text); // try to parse JSON
+        data = JSON.parse(text);
       } catch {
         console.error("Non-JSON response:", text.slice(0, 200));
         alert(
           "Backend returned an error page instead of JSON.\n" +
             text.slice(0, 200)
         );
-        return; // stop here so UI doesn't crash
+        return;
       }
 
       console.log("Debug: Model run response:", data);
@@ -422,6 +446,60 @@ export default function Models() {
               </select>
             </div>
           )}
+          {selectedModel === "TimeSeriesForecasting" && columns.length > 0 && (
+            <div className="bg-amber-50 border border-yellow-300 p-4 rounded shadow mb-4">
+              <label
+                htmlFor="dateColumn"
+                className="block text-sm font-semibold text-yellow-800 mb-1"
+              >
+                📅 Date Column
+              </label>
+              <select
+                id="dateColumn"
+                value={selectedTarget.split("|")[0] || ""}
+                onChange={(e) => {
+                  const valueCol = selectedTarget.split("|")[1] || "";
+                  setSelectedTarget(`${e.target.value}|${valueCol}`);
+                }}
+                className="mt-1 block w-full rounded-md border-yellow-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm mb-4"
+              >
+                <option value="">Select a date column</option>
+                {columns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+
+              <label
+                htmlFor="valueColumn"
+                className="block text-sm font-semibold text-yellow-800 mb-1"
+              >
+                📈 Value Column
+              </label>
+              <select
+                id="valueColumn"
+                value={selectedTarget.split("|")[1] || ""}
+                onChange={(e) => {
+                  const dateCol = selectedTarget.split("|")[0] || "";
+                  setSelectedTarget(`${dateCol}|${e.target.value}`);
+                }}
+                className="mt-1 block w-full rounded-md border-yellow-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500 sm:text-sm"
+              >
+                <option value="">Select a value column</option>
+                {columns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+              {selectedTarget && !selectedTarget.includes("|") && (
+                <p className="mt-2 text-red-600 text-sm">
+                  ⚠️ Please select both a date and a value column.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
       <div className="mt-6">
@@ -444,6 +522,7 @@ export default function Models() {
               {(result.error.includes("preprocess the dataset") ||
                 result.error.includes("NoSuchKey") ||
                 result.error.includes("Missing target_column") ||
+                result.error.includes("Missing date_column|value_column") ||
                 result.error.includes("No valid numeric feature columns") ||
                 result.error.includes("Empty dataset") ||
                 result.error.includes("No text data")) && (
@@ -454,6 +533,8 @@ export default function Models() {
                     ? "The dataset has missing values (e.g., columns with all NaNs). Use the Data Cleaning page to drop or impute these values."
                     : result.error.includes("Missing target_column")
                     ? "Please select a valid target column for this model."
+                    : result.error.includes("Missing date_column|value_column")
+                    ? "Please select both a Date column and a Value column for forecasting."
                     : result.error.includes("Empty dataset")
                     ? "The dataset is empty. Please upload a valid dataset or check your cleaning steps."
                     : result.error.includes("No text data")
@@ -464,6 +545,7 @@ export default function Models() {
               )}
             </p>
           )}
+
           {result.image_base64 ? (
             <>
               {console.log(
@@ -638,101 +720,18 @@ export default function Models() {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Text
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Sentiment
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Score
-                        </th>
+                        <th>Text</th>
+                        <th>Sentiment</th>
+                        <th>Score</th>
                       </tr>
                     </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
+                    <tbody>
                       {result.sample_results.map(
                         ([text, label, score], idx) => (
                           <tr key={idx}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {text.slice(0, 100)}...
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {label}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {score.toFixed(2)}
-                            </td>
-                          </tr>
-                        )
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-          {result.message && (
-            <p className="mt-2 text-sm text-gray-600">✅ {result.message}</p>
-          )}
-          {result.model === "Toxicity" && (
-            <>
-              {result.num_texts && (
-                <p className="mb-2">
-                  <strong>Processed Texts:</strong> {result.num_texts}
-                </p>
-              )}
-              {result.toxicity_counts && (
-                <div className="mb-4">
-                  <h3 className="font-medium">Toxicity Counts:</h3>
-                  <ul className="list-disc list-inside">
-                    {Object.entries(result.toxicity_counts).map(
-                      ([label, count]) => (
-                        <li key={label}>
-                          {label}: {count}
-                        </li>
-                      )
-                    )}
-                  </ul>
-                </div>
-              )}
-              {result.image_base64 && (
-                <img
-                  src={`data:image/png;base64,${result.image_base64}`}
-                  alt="Toxicity Distribution"
-                  className="w-full max-w-lg mx-auto rounded-lg shadow-md mb-4"
-                  onError={() => console.error("Failed to load Toxicity plot")}
-                />
-              )}
-              {result.sample_results && (
-                <div className="mb-4 overflow-x-auto">
-                  <h3 className="font-medium">Sample Results:</h3>
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Text
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Label
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Score
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {result.sample_results.map(
-                        ([text, label, score], idx) => (
-                          <tr key={idx}>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {text.slice(0, 100)}...
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {label}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                              {score.toFixed(2)}
-                            </td>
+                            <td>{text.slice(0, 100)}...</td>
+                            <td>{label}</td>
+                            <td>{score.toFixed(2)}</td>
                           </tr>
                         )
                       )}
@@ -743,61 +742,56 @@ export default function Models() {
             </>
           )}
 
-          {result.model === "NER" && (
-            <>
-              {result.num_texts && (
-                <p className="mb-2">
-                  <strong>Processed Texts:</strong> {result.num_texts}
-                </p>
-              )}
-              {result.image_base64 && (
-                <img
-                  src={`data:image/png;base64,${result.image_base64}`}
-                  alt="NER Entity Distribution"
-                  className="w-full max-w-lg mx-auto rounded-lg shadow-md mb-4"
-                  onError={() => console.error("Failed to load NER plot")}
-                />
-              )}
-              {result.entities_sample && result.entities_sample.length > 0 ? (
-                <div className="mb-4 overflow-x-auto">
-                  <h3 className="font-medium">Named Entities (Sample)</h3>
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Word
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Entity
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Score
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {result.entities_sample.flat().map((ent, idx) => (
-                        <tr key={idx}>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {ent.word}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
-                            {ent.entity}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {ent.score.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+          {result.message && (
+            <p className="mt-2 text-sm text-gray-600">✅ {result.message}</p>
+          )}
+
+          {/* 👇 Replace your old AnomalyDetection section with this */}
+          {result.model === "AnomalyDetection" && (
+            <div>
+              <h3 className="font-medium">Detected Anomalies</h3>
+              {result.anomalies?.length > 0 ? (
+                <ul>
+                  {result.anomalies.map((a, i) => (
+                    <li key={i}>{JSON.stringify(a)}</li>
+                  ))}
+                </ul>
               ) : (
-                <p className="text-gray-600">
-                  No entities detected in sample texts.
-                </p>
+                <p>No anomalies detected.</p>
               )}
-            </>
+            </div>
+          )}
+
+          {/* 👇 Replace your old TimeSeriesForecasting section with this */}
+          {result.model === "TimeSeriesForecasting" && (
+            <div>
+              <h3 className="font-medium">Forecast Results</h3>
+              {Array.isArray(result.forecast) ? (
+                <pre className="text-sm bg-gray-50 p-2 rounded">
+                  {JSON.stringify(result.forecast.slice(0, 10), null, 2)}
+                </pre>
+              ) : (
+                <p>No forecast results available.</p>
+              )}
+            </div>
+          )}
+
+          {/* 👇 Replace your old FeatureImportance section with this */}
+          {result.model === "FeatureImportance" && (
+            <div>
+              <h3 className="font-medium">Feature Importances</h3>
+              {Array.isArray(result.importances) ? (
+                <ul>
+                  {result.importances.map(([feature, score], i) => (
+                    <li key={i}>
+                      {feature}: {score.toFixed(4)}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p>No feature importances calculated.</p>
+              )}
+            </div>
           )}
         </div>
       )}
