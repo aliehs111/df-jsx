@@ -1,6 +1,9 @@
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 import os
+from transformers import pipeline
+import matplotlib.pyplot as plt
+import io, base64
 
 API_KEY = os.getenv("API_KEY")
 
@@ -11,7 +14,11 @@ class InferenceRequest(BaseModel):
     model: str
     params: dict | None = None
 
-# ✅ Add this health check route
+# Load pipelines once (so GPU warms up)
+sentiment_pipeline = pipeline("sentiment-analysis")
+# Example: you can define others if needed
+# text_classification_pipeline = pipeline("text-classification")
+
 @app.get("/")
 def health():
     return {"status": "ok"}
@@ -21,13 +28,42 @@ async def infer(req: InferenceRequest, authorization: str = Header(None)):
     if authorization != f"Bearer {API_KEY}":
         raise HTTPException(status_code=401, detail="Invalid API key")
     
-    # Placeholder for model logic
-    return {
-        "dataset_id": req.dataset_id,
-        "model": req.model,
-        "status": "success",
-        "results": {"note": "Replace this with actual GPU inference logic"}
-    }
+    if req.model == "Sentiment":
+        texts = req.params.get("texts") if req.params else []
+        if not texts:
+            raise HTTPException(status_code=400, detail="No texts provided for sentiment analysis")
+
+        results = sentiment_pipeline(texts)
+        
+        # Optional: build a simple plot of counts
+        labels = [r['label'] for r in results]
+        counts = {label: labels.count(label) for label in set(labels)}
+        fig, ax = plt.subplots()
+        ax.bar(counts.keys(), counts.values())
+        ax.set_title("Sentiment Counts")
+        
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png")
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode("utf-8")
+        
+        return {
+            "dataset_id": req.dataset_id,
+            "model": req.model,
+            "status": "success",
+            "results": results,
+            "image_base64": img_base64
+        }
+
+    # Add stubs for other models
+    elif req.model == "AnomalyDetection":
+        return {"status": "error", "note": "AnomalyDetection not implemented yet"}
+    
+    elif req.model == "TimeSeriesForecasting":
+        return {"status": "error", "note": "TimeSeriesForecasting not implemented yet"}
+
+    raise HTTPException(status_code=400, detail=f"Model {req.model} not supported")
+
 
 
 
