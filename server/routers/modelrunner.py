@@ -1,5 +1,6 @@
 # server/routers/modelrunner.py
 
+import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,16 +28,16 @@ from server.auth.userroutes import current_user
 router = APIRouter(prefix="/models", tags=["models"])
 logger = logging.getLogger("server.modelrunner")
 
+NORTHFLANK_GPU_URL = os.getenv("NORTHFLANK_GPU_URL")
+NORTHFLANK_API_KEY = os.getenv("NORTHFLANK_API_KEY")
+
+
 # -----------------------
 # AWS Clients
 # -----------------------
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-runtime = boto3.client(
-    "sagemaker-runtime",
-    region_name=AWS_REGION,
-    config=Config(connect_timeout=60, read_timeout=300, retries={"max_attempts": 3}),
-)
+AWS_REGION = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
 s3 = boto3.client("s3", region_name=AWS_REGION)
+
 
 S3_BUCKET = os.getenv("S3_BUCKET", "dfjsx-uploads")
 ENDPOINT_NAME = os.getenv("SAGEMAKER_MME_ENDPOINT", "huggingface-mme-gpu")
@@ -211,47 +212,27 @@ def run_model_logistic_regression(df: pd.DataFrame, target_column, C=1.0, max_it
         "image_base64": img_base64,
     }
 
-def run_model_sagemaker(df: pd.DataFrame, text_column: str, model_name: str):
-    if text_column not in df.columns:
-        raise ValueError(f"Missing '{text_column}' column.")
-    texts = df[text_column].dropna().astype(str).tolist()
-    endpoint_name = MODEL_ENDPOINTS.get(model_name)
-    if not endpoint_name:
-        raise ValueError(f"No SageMaker endpoint configured for model {model_name}")
-    labels, scores = [], []
-    batch_size = 20
-    for i in range(0, len(texts), batch_size):
-        payload = json.dumps({"inputs": texts[i:i+batch_size]})
-        response = runtime.invoke_endpoint(
-            EndpointName=endpoint_name,
-            ContentType="application/json",
-            Body=payload,
-            Accept="application/json",
-            TargetModel=f"{model_name.lower()}.tar.gz",
-        )
-        batch_result = json.loads(response["Body"].read().decode("utf-8"))
-        if model_name == "Sentiment":
-            label_map = {"LABEL_0": "NEGATIVE", "LABEL_1": "NEUTRAL", "LABEL_2": "POSITIVE"}
-            labels.extend([label_map.get(r["label"], r["label"]) for r in batch_result])
-            scores.extend([r["score"] for r in batch_result])
-    if model_name == "Sentiment":
-        sentiment_counts = pd.Series(labels).value_counts().to_dict()
-        fig, ax = plt.subplots(figsize=(6, 4))
-        ax.bar(sentiment_counts.keys(), sentiment_counts.values())
-        ax.set_title("Sentiment Distribution")
-        buf = io.BytesIO()
-        plt.tight_layout()
-        plt.savefig(buf, format="png")
-        plt.close(fig)
-        buf.seek(0)
-        img_base64 = base64.b64encode(buf.read()).decode("utf-8")
-        return {
-            "input_shape": list(df.shape),
-            "num_texts": len(texts),
-            "sentiment_counts": {k: int(v) for k, v in sentiment_counts.items()},
-            "sample_results": list(zip(texts[:10], labels[:10], scores[:10])),
-            "image_base64": img_base64,
-        }
+
+
+def run_model_northflank(dataset_id: int, model_name: str, params: dict | None = None):
+    if not NORTHFLANK_GPU_URL or not NORTHFLANK_API_KEY:
+        raise ValueError("Northflank config vars missing")
+    
+    headers = {"Authorization": f"Bearer {NORTHFLANK_API_KEY}"}
+    payload = {
+        "dataset_id": str(dataset_id),
+        "model": model_name,
+        "params": params or {}
+    }
+    try:
+        response = requests.post(NORTHFLANK_GPU_URL, json=payload, headers=headers, timeout=120)
+        response.raise_for_status()
+        print("Northflank raw response:", response.text) 
+        return response.json()
+    except Exception as e:
+        raise ValueError(f"Northflank request failed: {str(e)}")
+
+
 
 # -----------------------
 # Run Endpoint
@@ -272,7 +253,9 @@ async def run_model(payload: ModelRunRequest, db: AsyncSession = Depends(get_asy
     elif payload.model_name == "LogisticRegression":
         output = run_model_logistic_regression(df, payload.target_column, C=payload.C)
     elif payload.model_name in ["Sentiment", "AnomalyDetection", "TimeSeriesForecasting"]:
-        output = run_model_sagemaker(df, text_column=payload.target_column, model_name=payload.model_name)
+        params = {"target_column": payload.target_column}
+        output = run_model_northflank(payload.dataset_id, payload.model_name, params=params)
+
     else:
         raise HTTPException(status_code=400, detail=f"Model {payload.model_name} not supported")
     return {"dataset_id": int(payload.dataset_id), "model": payload.model_name, "status": "success", **output}
