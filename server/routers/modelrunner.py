@@ -3,6 +3,7 @@
 import requests
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import pandas as pd
 import numpy as np
@@ -21,6 +22,7 @@ from fastapi.responses import JSONResponse
 from server.database import get_async_db
 from server.models import Dataset as DatasetModel
 from server.auth.userroutes import current_user
+
 
 # -----------------------
 # Router + Logging
@@ -213,24 +215,46 @@ def run_model_logistic_regression(df: pd.DataFrame, target_column, C=1.0, max_it
     }
 
 
+S3_BUCKET = os.getenv("S3_BUCKET")
+s3 = boto3.client("s3")
+
+NORTHFLANK_GPU_URL = os.getenv("NORTHFLANK_GPU_URL")
+NORTHFLANK_API_KEY = os.getenv("NORTHFLANK_API_KEY")
 
 def run_model_northflank(dataset_id: int, model_name: str, params: dict | None = None):
     if not NORTHFLANK_GPU_URL or not NORTHFLANK_API_KEY:
         raise ValueError("Northflank config vars missing")
-    
-    headers = {"Authorization": f"Bearer {NORTHFLANK_API_KEY}"}
+
     payload = {
         "dataset_id": str(dataset_id),
         "model": model_name,
         "params": params or {}
     }
+
+    headers = {
+        "Authorization": f"Bearer {NORTHFLANK_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
     try:
-        response = requests.post(NORTHFLANK_GPU_URL, json=payload, headers=headers, timeout=120)
+        response = requests.post(
+            NORTHFLANK_GPU_URL,
+            json=payload,
+            headers=headers,
+            timeout=120
+        )
         response.raise_for_status()
-        print("Northflank raw response:", response.text) 
+        print("Northflank raw response:", response.text)
         return response.json()
     except Exception as e:
-        raise ValueError(f"Northflank request failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Northflank request failed: {str(e)}"
+        )
+
+
+
+
 
 
 
@@ -238,27 +262,65 @@ def run_model_northflank(dataset_id: int, model_name: str, params: dict | None =
 # Run Endpoint
 # -----------------------
 @router.post("/run")
-async def run_model(payload: ModelRunRequest, db: AsyncSession = Depends(get_async_db), user=Depends(current_user)):
-    result = await db.execute(select(DatasetModel).where(DatasetModel.id == payload.dataset_id))
+async def run_model(
+    payload: ModelRunRequest,
+    db: AsyncSession = Depends(get_async_db),
+    user=Depends(current_user)
+):
+    # 🔹 Verify dataset exists and has cleaned data
+    result = await db.execute(
+        select(DatasetModel).where(DatasetModel.id == payload.dataset_id)
+    )
     dataset = result.scalar_one_or_none()
     if not dataset or not dataset.has_cleaned_data or not dataset.s3_key_cleaned:
         raise HTTPException(status_code=400, detail="Dataset not ready. Clean your data first.")
+
+    # 🔹 Load DataFrame from S3
     response = s3.get_object(Bucket=S3_BUCKET, Key=dataset.s3_key_cleaned)
     content = response["Body"].read()
     df = pd.read_csv(io.StringIO(content.decode("utf-8", errors="replace")))
+
+    # 🔹 Handle models
     if payload.model_name == "PCA_KMeans":
         output = run_model_pca_kmeans(df, n_clusters=payload.n_clusters)
+
     elif payload.model_name == "RandomForest":
-        output = run_model_random_forest(df, payload.target_column, payload.n_estimators, payload.max_depth)
+        output = run_model_random_forest(
+            df, payload.target_column, payload.n_estimators, payload.max_depth
+        )
+
     elif payload.model_name == "LogisticRegression":
-        output = run_model_logistic_regression(df, payload.target_column, C=payload.C)
+        output = run_model_logistic_regression(
+            df, payload.target_column, C=payload.C
+        )
+
     elif payload.model_name in ["Sentiment", "AnomalyDetection", "TimeSeriesForecasting"]:
-        params = {"target_column": payload.target_column}
-        output = run_model_northflank(payload.dataset_id, payload.model_name, params=params)
+        if not payload.target_column:
+            raise HTTPException(
+                status_code=400,
+                detail="Target column is required for this model"
+            )
+
+        # 🔹 Build texts list (limit to 100 for performance)
+        texts = df[payload.target_column].dropna().astype(str).tolist()[:100]
+        params = {"texts": texts}
+
+        output = run_model_northflank(
+            payload.dataset_id, payload.model_name, params=params
+        )
 
     else:
-        raise HTTPException(status_code=400, detail=f"Model {payload.model_name} not supported")
-    return {"dataset_id": int(payload.dataset_id), "model": payload.model_name, "status": "success", **output}
+        raise HTTPException(
+            status_code=400, detail=f"Model {payload.model_name} not supported"
+        )
+
+    return {
+        "dataset_id": int(payload.dataset_id),
+        "model": payload.model_name,
+        "status": "success",
+        **output
+    }
+
 
 
 
