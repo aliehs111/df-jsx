@@ -236,7 +236,24 @@ export default function Models() {
       } else if (selectedModel === "Sentiment") {
         payload.target_column = selectedTarget;
       } else if (selectedModel === "AnomalyDetection") {
-        // No target_column needed
+        try {
+          const rowsRes = await fetch(
+            `/api/datasets/${selectedDataset}/rows?limit=100`,
+            {
+              method: "GET",
+              credentials: "include",
+            }
+          );
+          if (!rowsRes.ok) {
+            throw new Error(`Failed to fetch rows: ${rowsRes.status}`);
+          }
+          const rowsData = await rowsRes.json();
+          payload.params = { records: rowsData.rows || [] };
+        } catch (err) {
+          console.error("Error fetching rows for anomaly detection:", err);
+          setResult({ error: `Could not fetch rows: ${err.message}` });
+          return;
+        }
       } else if (selectedModel === "TimeSeriesForecasting") {
         payload.target_column = selectedTarget; // formatted as "date|value"
       } else if (selectedModel === "FeatureImportance") {

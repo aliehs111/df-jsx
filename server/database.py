@@ -39,3 +39,6 @@ Base = declarative_base()
 async def get_async_db():
     async with AsyncSessionLocal() as session:
         yield session
+
+# For compatibility: let routers import `get_db`
+get_db = get_async_db
