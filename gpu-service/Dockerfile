@@ -16,5 +16,6 @@ RUN pip3 install --no-cache-dir -r requirements_gpu.txt
 COPY . .
 
 EXPOSE 8080
-CMD ["uvicorn", "main_gpu:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["sh", "-c", "uvicorn main_gpu:app --host 0.0.0.0 --port ${PORT:-8080}"]
+
 
