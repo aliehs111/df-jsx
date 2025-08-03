@@ -23,7 +23,11 @@ class InferenceRequest(BaseModel):
     params: dict | None = None
 
 # Load pipelines once (so GPU warms up)
-sentiment_pipeline = pipeline("sentiment-analysis")
+sentiment_pipeline = pipeline(
+    "sentiment-analysis",
+    model="cardiffnlp/twitter-roberta-base-sentiment-latest"
+)
+
 
 
 @app.get("/")
