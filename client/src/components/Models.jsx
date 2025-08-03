@@ -172,7 +172,8 @@ export default function Models() {
 
   const isTargetValid =
     selectedModel === "PCA_KMeans" ||
-    selectedModel === "Sentiment" || // Sentiment requires text column, no unique count check
+    selectedModel === "Sentiment" ||
+    selectedModel === "AnomalyDetection" ||
     (selectedTarget && targetUniqueCount >= 2);
 
   const handleRunModel = async () => {
@@ -249,6 +250,7 @@ export default function Models() {
           }
           const rowsData = await rowsRes.json();
           payload.params = { records: rowsData.rows || [] };
+          console.log("✅ AnomalyDetection payload ready:", payload);
         } catch (err) {
           console.error("Error fetching rows for anomaly detection:", err);
           setResult({ error: `Could not fetch rows: ${err.message}` });
@@ -584,7 +586,8 @@ export default function Models() {
               />
             </>
           ) : (
-            !result.error && (
+            !result.error &&
+            result.model !== "AnomalyDetection" && (
               <p className="text-gray-600">
                 No plot available. Ensure the model ran successfully or check
                 the console for errors.
@@ -763,32 +766,42 @@ export default function Models() {
             <p className="mt-2 text-sm text-gray-600">✅ {result.message}</p>
           )}
 
-          {/* 👇 Replace your old AnomalyDetection section with this */}
           {result.model === "AnomalyDetection" && (
             <div>
-              <h3 className="font-medium">Detected Anomalies</h3>
+              <h3 className="font-medium mb-2">Detected Anomalies</h3>
               {result.anomalies?.length > 0 ? (
-                <ul>
-                  {result.anomalies.map((a, i) => (
-                    <li key={i}>{JSON.stringify(a)}</li>
-                  ))}
-                </ul>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 bg-white shadow rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        {Object.keys(result.anomalies[0]).map((key) => (
+                          <th
+                            key={key}
+                            className="px-3 py-2 text-xs font-semibold text-gray-700 text-left"
+                          >
+                            {key}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.anomalies.slice(0, 20).map((row, i) => (
+                        <tr key={i} className="border-b hover:bg-gray-50">
+                          {Object.values(row).map((val, j) => (
+                            <td
+                              key={j}
+                              className="px-3 py-2 text-sm text-gray-600"
+                            >
+                              {val}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               ) : (
-                <p>No anomalies detected.</p>
-              )}
-            </div>
-          )}
-
-          {/* 👇 Replace your old TimeSeriesForecasting section with this */}
-          {result.model === "TimeSeriesForecasting" && (
-            <div>
-              <h3 className="font-medium">Forecast Results</h3>
-              {Array.isArray(result.forecast) ? (
-                <pre className="text-sm bg-gray-50 p-2 rounded">
-                  {JSON.stringify(result.forecast.slice(0, 10), null, 2)}
-                </pre>
-              ) : (
-                <p>No forecast results available.</p>
+                <p className="text-gray-600">No anomalies detected.</p>
               )}
             </div>
           )}
