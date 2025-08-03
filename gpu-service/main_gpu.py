@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel
 import os
@@ -134,7 +135,10 @@ async def infer(req: InferenceRequest, authorization: str = Header(None)):
     raise HTTPException(status_code=400, detail=f"Model {req.model} not supported")
 
 
-
+@app.on_event("startup")
+async def startup_event():
+    port = os.getenv("PORT", "8080")
+    print(f"[INFO] GPU service starting on port {port}")
 
 
 
