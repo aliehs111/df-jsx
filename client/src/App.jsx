@@ -22,6 +22,7 @@ import Resources from "./components/Resources";
 import ProcessDataset from "./components/ProcessDataset";
 import DataInsights from "./components/DataInsights";
 import Models from "./components/Models";
+import Databot from "./components/Databot";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -134,6 +135,9 @@ function App() {
           }
         />
       </Routes>
+
+      {/* 👇 Add Databot floating widget outside Routes */}
+      {user && <Databot selectedDataset={null} />}
 
       <Footer />
     </Router>
