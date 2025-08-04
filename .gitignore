@@ -1,6 +1,38 @@
+# Dependencies
 node_modules/
-build/
-.env
+*.egg-info/
+*.egg
 
+# Build outputs
+
+# build/
+dist/
+*.log
+
+# Python cache
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+env/
+venv/
+.nox/
+.dmypy.json
+.pytest_cache/
+
+# Environment & secrets
+.env
+.env.*
+*.sqlite3
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# OS / Editor junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
