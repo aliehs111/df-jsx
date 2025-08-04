@@ -99,3 +99,7 @@ class CleanPreviewRequest(BaseModel):
     dataset_id: int
     operations: Dict[str, Any]
     save: Optional[bool] = False
+
+class DatabotQuery(BaseModel):
+    dataset_id: int
+    question: str
