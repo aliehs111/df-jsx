@@ -137,7 +137,7 @@ function App() {
       </Routes>
 
       {/* 👇 Add Databot floating widget outside Routes */}
-      {user && <Databot selectedDataset={null} />}
+      {user && <Databot />}
 
       <Footer />
     </Router>

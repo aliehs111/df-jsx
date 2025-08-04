@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 
 export default function Databot({ selectedDataset }) {
   const [question, setQuestion] = useState("");
@@ -6,16 +7,27 @@ export default function Databot({ selectedDataset }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
+  // 👇 Detect datasetId from the URL (e.g., /datasets/22)
+  const location = useLocation();
+  const match = location.pathname.match(/\/datasets\/(\d+)/);
+  const datasetId = match ? parseInt(match[1]) : selectedDataset || null;
+
+  console.log("Databot datasetId:", datasetId);
+
+  const API_BASE =
+    import.meta.env.MODE === "development" ? "http://127.0.0.1:8000" : "";
+
   const askDatabot = async () => {
     if (!question) return;
     setIsLoading(true);
     try {
-      const res = await fetch("/api/databot/query", {
+      const res = await fetch(`${API_BASE}/api/databot/query`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ dataset_id: selectedDataset, question }),
+        body: JSON.stringify({ dataset_id: datasetId, question }),
       });
+
       const data = await res.json();
       if (!res.ok) {
         setAnswer("Error: " + (data.detail || "Unknown error"));
@@ -51,12 +63,12 @@ export default function Databot({ selectedDataset }) {
           <button
             onClick={askDatabot}
             className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-500"
-            disabled={isLoading || !selectedDataset}
+            disabled={isLoading || !datasetId}
           >
             {isLoading ? "Thinking..." : "Ask"}
           </button>
           {answer && (
-            <div className="mt-3 p-2 bg-gray-100 border rounded text-sm">
+            <div className="mt-3 p-2 bg-gray-100 border rounded text-sm max-h-48 overflow-y-auto">
               <strong>Databot:</strong> {answer}
             </div>
           )}

@@ -104,13 +104,19 @@ export default function FileUpload() {
         title,
         description,
         filename: file.name,
-        raw_data: records,
         s3_key: s3Key,
+
+        // ✅ include insights metadata
+        n_rows: insights.n_rows,
+        n_columns: insights.n_columns,
+        has_missing_values: insights.has_missing_values,
+        column_metadata: insights.column_metadata,
+        current_stage: "uploaded", // ✅ default
       };
 
       const res = await fetch("/api/datasets/save", {
         method: "POST",
-        credentials: "include", // send HttpOnly cookie
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -118,9 +124,8 @@ export default function FileUpload() {
       });
 
       if (!res.ok) {
-        if (res.status === 401) {
+        if (res.status === 401)
           throw new Error("Not authenticated – please log in again.");
-        }
         const errPayload = await res.json().catch(() => ({}));
         throw new Error(errPayload.detail ?? "Save failed");
       }

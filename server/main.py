@@ -91,10 +91,12 @@ from server.routers.insights import router as insights_router
 from server.routers import modelrunner
 from server.routers import databot
 from server.routers import datarows
+from openai import OpenAI
 # ─────────────────────────────────────────────────────────────────────────────
 #  END IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
 
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 current_user = fastapi_users.current_user()
 s3 = get_s3()
@@ -120,29 +122,36 @@ def sanitize_floats(o):
 app = FastAPI(generate_unique_id_function=custom_generate_unique_id)
 
 # --- CORS settings ---
-origins = [
+DEV_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:5174",
     "http://127.0.0.1:5174",
+]
+
+PROD_ORIGINS = [
     "https://df-jsx-ab06705b49fb.herokuapp.com",
 ]
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+ENV = os.getenv("ENV", "development")  # set ENV=production in Heroku config
+
+origins = PROD_ORIGINS if ENV == "production" else DEV_ORIGINS
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
+
 app.include_router(user_router, prefix="/api")
 app.include_router(datasets_router, prefix="/api")
 app.include_router(insights_router, prefix="/api", tags=["insights"])
 app.include_router(model_runner_router, prefix="/api", tags=["models"])
-app.include_router(databot.router, prefix="/api")
+app.include_router(databot.router, prefix="/api", tags=["Databot"])
 app.include_router(datarows.router, prefix="/api")
 
 class CleanRequest(BaseModel):
@@ -163,7 +172,15 @@ async def init_models():
 @app.on_event("startup")
 async def on_startup():
     await init_models()
-
+    # ✅ Check OpenAI API key is loaded
+    openai_key_loaded = bool(os.getenv("OPENAI_API_KEY"))
+    if not openai_key_loaded:
+        print("⚠️  WARNING: OPENAI_API_KEY not found. Databot will not work.")
+    else:
+        print("✅ OpenAI API key loaded successfully.")
+        # Optionally, instantiate the client so it's ready
+        global openai_client
+        openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @app.post("/api/upload-csv", dependencies=[Depends(current_user)])
 async def upload_csv(file: UploadFile = File(...)):
@@ -216,6 +233,46 @@ async def upload_csv(file: UploadFile = File(...)):
     return jsonable_encoder(insights)
 
 
+# @app.post("/api/datasets/save", dependencies=[Depends(current_user)])
+# async def save_dataset(data: DatasetCreate, db: AsyncSession = Depends(get_async_db)):
+#     try:
+#         dataset = DatasetModel(
+#             title=data.title,
+#             description=data.description,
+#             filename=data.filename,
+#             s3_key=data.s3_key,
+#             s3_key_cleaned=None,
+#             categorical_mappings=data.categorical_mappings,
+#             normalization_params=data.normalization_params,
+#             column_renames=data.column_renames,
+#             target_column=data.target_column,
+#             selected_features=data.selected_features,
+#             excluded_columns=data.excluded_columns,
+#             feature_engineering_notes=data.feature_engineering_notes,
+#             column_metadata=data.column_metadata,
+#             n_rows=data.n_rows,
+#             n_columns=data.n_columns,
+#             has_missing_values=data.has_missing_values,
+#             processing_log=(
+#                 " | ".join(data.processing_log) if data.processing_log else None
+#             ),
+#             current_stage=data.current_stage,
+#             has_cleaned_data=False,
+#             extra_json_1=data.extra_json_1,
+#             extra_txt_1=data.extra_txt_1,
+#         )
+
+#         db.add(dataset)
+#         await db.flush()
+#         await db.refresh(dataset)
+#         await db.commit()
+
+#         return {"id": dataset.id}
+#     except Exception as e:
+#         await db.rollback()
+#         raise HTTPException(status_code=500, detail=str(e))
+# server/main.py
+# server/main.py
 @app.post("/api/datasets/save", dependencies=[Depends(current_user)])
 async def save_dataset(data: DatasetCreate, db: AsyncSession = Depends(get_async_db)):
     try:
@@ -232,21 +289,22 @@ async def save_dataset(data: DatasetCreate, db: AsyncSession = Depends(get_async
             selected_features=data.selected_features,
             excluded_columns=data.excluded_columns,
             feature_engineering_notes=data.feature_engineering_notes,
-            column_metadata=data.column_metadata,
-            n_rows=data.n_rows,
-            n_columns=data.n_columns,
-            has_missing_values=data.has_missing_values,
+            column_metadata=data.column_metadata,     # ✅ from upload_csv
+            n_rows=data.n_rows,                      # ✅ from upload_csv
+            n_columns=data.n_columns,                # ✅ from upload_csv
+            has_missing_values=bool(data.has_missing_values)
+            if data.has_missing_values is not None else None,
             processing_log=(
                 " | ".join(data.processing_log) if data.processing_log else None
             ),
-            current_stage=data.current_stage,
+            current_stage=data.current_stage or "uploaded",  # ✅ default stage
             has_cleaned_data=False,
             extra_json_1=data.extra_json_1,
             extra_txt_1=data.extra_txt_1,
         )
 
         db.add(dataset)
-        await db.flush()
+        await db.flush()     # ensures ID is generated
         await db.refresh(dataset)
         await db.commit()
 
@@ -254,6 +312,7 @@ async def save_dataset(data: DatasetCreate, db: AsyncSession = Depends(get_async
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.get(
