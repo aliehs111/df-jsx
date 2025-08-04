@@ -6,7 +6,7 @@ node_modules/
 # Build outputs
 
 # build/
-dist/
+# dist/
 *.log
 
 # Python cache
@@ -31,7 +31,7 @@ venv/
 # Jupyter notebooks checkpoints
 .ipynb_checkpoints/
 
-# OS / Editor junk
+# OS / Editor
 .DS_Store
 Thumbs.db
 .vscode/
