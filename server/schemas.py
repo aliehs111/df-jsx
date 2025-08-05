@@ -1,8 +1,6 @@
-# server/schemas.py
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-
 
 class DatasetCreate(BaseModel):
     title: str
@@ -21,12 +19,11 @@ class DatasetCreate(BaseModel):
     n_rows: Optional[int] = None
     n_columns: Optional[int] = None
     has_missing_values: Optional[bool] = None
-    processing_log: Optional[str] = None  # Changed to string
+    processing_log: Optional[str] = None
     current_stage: Optional[str] = None
     has_cleaned_data: bool = False
     extra_json_1: Optional[Dict[str, Any]] = None
     extra_txt_1: Optional[str] = None
-
 
 class DatasetSummary(BaseModel):
     id: int
@@ -37,10 +34,8 @@ class DatasetSummary(BaseModel):
     s3_key_cleaned: Optional[str] = None
     uploaded_at: datetime
     has_cleaned_data: bool
-
     class Config:
         orm_mode = True
-
 
 class DatasetOut(BaseModel):
     id: int
@@ -61,16 +56,14 @@ class DatasetOut(BaseModel):
     n_rows: Optional[int] = None
     n_columns: Optional[int] = None
     has_missing_values: Optional[bool] = None
-    processing_log: Optional[str] = None  # Changed to string
+    processing_log: Optional[str] = None
     current_stage: Optional[str] = None
     has_cleaned_data: bool
     extra_json_1: Optional[Dict[str, Any]] = None
     extra_txt_1: Optional[str] = None
     preview_data: Optional[List[Dict]] = None
-
     class Config:
         orm_mode = True
-
 
 class CleanOps(BaseModel):
     dropna: Optional[bool] = False
@@ -79,21 +72,17 @@ class CleanOps(BaseModel):
     remove_duplicates: Optional[bool] = False
     selected_columns: Optional[List[str]] = None
 
-
 class PreprocessOps(BaseModel):
     scale: Optional[str] = None
     encoding: Optional[str] = None
     selected_columns: Optional[List[str]] = None
 
-
 class ProcessRequest(BaseModel):
     clean: CleanOps
     preprocess: PreprocessOps
 
-
 class DownloadURLResponse(BaseModel):
     url: str
-
 
 class CleanPreviewRequest(BaseModel):
     dataset_id: int
@@ -103,3 +92,15 @@ class CleanPreviewRequest(BaseModel):
 class DatabotQuery(BaseModel):
     dataset_id: int
     question: str
+
+class CleanOperations(BaseModel):
+    fillna_strategy: str = ""
+    scale: str = ""
+    encoding: str = ""
+    lowercase_headers: bool = False
+    dropna: bool = False
+    remove_duplicates: bool = False
+    outlier_method: str = ""
+    conversions: dict = {}
+    binning: dict = {}
+    selected_columns: dict = Field(default_factory=lambda: {"fillna": [], "scale": [], "encoding": [], "outliers": []})

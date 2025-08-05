@@ -5,16 +5,30 @@ export default function DataCleaning() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [previewData, setPreviewData] = useState([]); // Changed from rawData
+  const [previewData, setPreviewData] = useState([]);
   const [cleanedData, setCleanedData] = useState([]);
+  const [columns, setColumns] = useState([]);
   const [beforeStats, setBeforeStats] = useState(null);
   const [afterStats, setAfterStats] = useState(null);
   const [alerts, setAlerts] = useState([]);
-  const [options, setOptions] = useState({});
+  const [options, setOptions] = useState({
+    fillna_strategy: "",
+    scale: "",
+    encoding: "",
+    lowercase_headers: false,
+    dropna: false,
+    remove_duplicates: false,
+    outlier_method: "",
+    conversions: {},
+    binning: {},
+    selected_columns: { fillna: [], scale: [], encoding: [], outliers: [] },
+  });
   const [filename, setFilename] = useState("");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [visImage, setVisImage] = useState(null);
+  const [showPeek, setShowPeek] = useState(false); // New: Toggle for dataset peek
 
   useEffect(() => {
     const fetchDataset = async () => {
@@ -26,7 +40,8 @@ export default function DataCleaning() {
         if (res.status === 404) return navigate("/datasets");
         if (!res.ok) throw new Error("Cannot load dataset");
         const data = await res.json();
-        setPreviewData(data.preview_data || []); // Use preview_data
+        setPreviewData(data.preview_data || []);
+        setColumns(data.columns || Object.keys(data.preview_data[0] || {}));
         setFilename(data.filename);
       } catch (err) {
         setError(err.message || "Failed to load dataset");
@@ -37,10 +52,73 @@ export default function DataCleaning() {
     fetchDataset();
   }, [id, navigate]);
 
+  useEffect(() => {
+    const fetchSuggestions = async () => {
+      try {
+        const backendUrl =
+          process.env.NODE_ENV === "development"
+            ? "http://127.0.0.1:8000"
+            : "https://your-northflank-backend-url"; // Replace with your Northflank URL
+        const res = await fetch(`${backendUrl}/api/databot/suggestions/${id}`, {
+          credentials: "include",
+        });
+        if (res.status === 404) {
+          setAlerts((prev) => [
+            ...new Set([
+              ...prev,
+              "Databot suggestions not available for this dataset.",
+            ]),
+          ]);
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+        const data = await res.json();
+        setAlerts((prev) => [...new Set([...prev, ...data.suggestions])]);
+      } catch (err) {
+        console.error("Failed to fetch Databot suggestions", err);
+        setAlerts((prev) => [
+          ...new Set([
+            ...prev,
+            "Failed to fetch Databot suggestions: " + err.message,
+          ]),
+        ]);
+      }
+    };
+    fetchSuggestions();
+  }, [id]);
+
+  const handleColumnSelect = (operation, column, checked) => {
+    setOptions((prev) => ({
+      ...prev,
+      selected_columns: {
+        ...prev.selected_columns,
+        [operation]: checked
+          ? [...prev.selected_columns[operation], column]
+          : prev.selected_columns[operation].filter((c) => c !== column),
+      },
+    }));
+  };
+
+  const handleConversion = (column, type) => {
+    setOptions((prev) => ({
+      ...prev,
+      conversions: { ...prev.conversions, [column]: type || undefined },
+    }));
+  };
+
+  const handleBinning = (column, bins) => {
+    setOptions((prev) => ({
+      ...prev,
+      binning: { ...prev.binning, [column]: parseInt(bins) || undefined },
+    }));
+  };
+
   const handlePreview = async () => {
     setLoading(true);
     setAlerts([]);
+    setVisImage(null);
     try {
+      console.log("Sending options to /clean-preview:", options); // Debug
       const res = await fetch(`/api/datasets/${id}/clean-preview`, {
         method: "POST",
         credentials: "include",
@@ -48,14 +126,15 @@ export default function DataCleaning() {
         body: JSON.stringify({ dataset_id: Number(id), operations: options }),
       });
       if (res.status === 401) return navigate("/login");
-      if (!res.ok) throw new Error("Preview failed");
+      if (!res.ok) throw new Error((await res.text()) || "Preview failed");
       const data = await res.json();
       setBeforeStats(data.before_stats);
       setAfterStats(data.after_stats);
       setAlerts(data.alerts || []);
-      setCleanedData(data.preview || previewData.slice(0, 5)); // Use preview_data as fallback
+      setCleanedData(data.preview || previewData.slice(0, 10));
+      setVisImage(data.vis_image_base64 || null);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || "Preview failed");
     } finally {
       setLoading(false);
     }
@@ -75,23 +154,11 @@ export default function DataCleaning() {
           save: true,
         }),
       });
-
-      if (res.status === 401) {
-        navigate("/login");
-        return;
-      }
-      if (!res.ok) {
-        const err = await res.text().catch(() => "Save failed");
-        throw new Error(err);
-      }
-
+      if (res.status === 401) return navigate("/login");
+      if (!res.ok) throw new Error((await res.text()) || "Save failed");
       const data = await res.json();
       setAlerts(data.alerts || []);
-      if (data.saved) {
-        navigate(`/datasets/${id}`);
-      } else {
-        throw new Error("Save operation did not complete");
-      }
+      if (data.saved) navigate(`/datasets/${id}`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -99,31 +166,32 @@ export default function DataCleaning() {
     }
   };
 
-  const renderStats = (stats) => (
-    <div className="bg-gray-50 p-4 rounded shadow text-sm">
-      <p>
-        <strong>Shape:</strong> {stats.shape.join(" × ")}
+  const renderStats = (stats, title) => (
+    <div className="bg-gray-100 p-4 rounded-lg shadow">
+      <h3 className="text-lg font-semibold mb-2">{title}</h3>
+      <p className="text-sm">
+        <strong>Rows × Columns:</strong> {stats.shape.join(" × ")}
       </p>
       <div className="mt-2">
-        <p className="font-semibold">Null Counts:</p>
-        <table className="table-auto text-sm w-full mt-1">
+        <p className="font-medium text-sm">Null Counts:</p>
+        <table className="w-full text-xs">
           <tbody>
             {Object.entries(stats.null_counts).map(([key, val]) => (
               <tr key={key}>
-                <td className="border px-2 py-1 w-1/2 font-medium">{key}</td>
+                <td className="border px-2 py-1">{key}</td>
                 <td className="border px-2 py-1">{val}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <div className="mt-4">
-        <p className="font-semibold">Data Types:</p>
-        <table className="table-auto text-sm w-full mt-1">
+      <div className="mt-2">
+        <p className="font-medium text-sm">Data Types:</p>
+        <table className="w-full text-xs">
           <tbody>
             {Object.entries(stats.dtypes).map(([key, val]) => (
               <tr key={key}>
-                <td className="border px-2 py-1 w-1/2 font-medium">{key}</td>
+                <td className="border px-2 py-1">{key}</td>
                 <td className="border px-2 py-1">{val}</td>
               </tr>
             ))}
@@ -133,23 +201,156 @@ export default function DataCleaning() {
     </div>
   );
 
-  if (loading) return <div className="p-6">Loading…</div>;
-  if (error) return <div className="p-6 text-red-500">{error}</div>;
+  const renderPreviewTable = (data, title) => (
+    <div className="mt-4">
+      <h3 className="text-lg font-semibold mb-2">{title}</h3>
+      <div className="overflow-x-auto bg-gray-100 p-4 rounded-lg shadow">
+        <table className="w-full text-xs">
+          <thead>
+            <tr>
+              {data.length > 0 &&
+                Object.keys(data[0]).map((col) => (
+                  <th key={col} className="border px-2 py-1 font-medium">
+                    {col}
+                  </th>
+                ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.slice(0, 10).map((row, i) => (
+              <tr key={i} className="hover:bg-gray-200">
+                {Object.values(row).map((val, j) => (
+                  <td key={j} className="border px-2 py-1">
+                    {val === null || val === undefined ? "N/A" : String(val)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {data.length > 10 && (
+          <p className="mt-2 text-xs text-gray-600">Showing first 10 rows.</p>
+        )}
+      </div>
+    </div>
+  );
+
+  if (loading)
+    return (
+      <div className="p-4 text-center text-lg text-gray-600">Loading...</div>
+    );
+  if (error)
+    return <div className="p-4 text-center text-lg text-red-500">{error}</div>;
 
   return (
-    <div className="max-w-6xl mx-auto p-6 bg-white shadow rounded">
-      <h2 className="text-2xl font-bold mb-4 text-blue-800">
-        Pipeline Sandbox
+    <div className="max-w-6xl mx-auto p-4 bg-white rounded-lg shadow">
+      <h2 className="text-2xl font-bold mb-4 text-gray-800 flex items-center">
+        <svg
+          className="w-6 h-6 mr-2 text-blue-600"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="2"
+            d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+          />
+        </svg>
+        Clean Dataset: {filename}
       </h2>
-      <p className="text-gray-700 mb-6">
-        File: <span className="font-medium">{filename}</span>
-      </p>
 
-      {/* Alerts Display */}
+      {/* Dataset Peek Section */}
+      <div className="mb-4">
+        <button
+          onClick={() => setShowPeek(!showPeek)}
+          className="text-blue-600 hover:underline flex items-center text-sm"
+          title="View a quick summary of the dataset."
+        >
+          <svg
+            className={`w-4 h-4 mr-1 transform ${showPeek ? "rotate-90" : ""}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M9 5l7 7-7 7"
+            />
+          </svg>
+          {showPeek ? "Hide Dataset Peek" : "Show Dataset Peek"}
+        </button>
+        {showPeek && (
+          <div className="bg-gray-50 p-4 rounded-lg mt-2">
+            <h3 className="text-lg font-semibold mb-2">Dataset Peek</h3>
+            <p className="text-sm mb-2">
+              <strong>Rows × Columns:</strong>{" "}
+              {beforeStats
+                ? beforeStats.shape.join(" × ")
+                : `${previewData.length} × ${columns.length}`}
+            </p>
+            <div className="mb-2">
+              <p className="font-medium text-sm">Columns and Types:</p>
+              <table className="w-full text-xs">
+                <tbody>
+                  {beforeStats
+                    ? Object.entries(beforeStats.dtypes).map(([col, dtype]) => (
+                        <tr key={col}>
+                          <td className="border px-2 py-1">{col}</td>
+                          <td className="border px-2 py-1">{dtype}</td>
+                        </tr>
+                      ))
+                    : columns.map((col) => (
+                        <tr key={col}>
+                          <td className="border px-2 py-1">{col}</td>
+                          <td className="border px-2 py-1">Unknown</td>
+                        </tr>
+                      ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="overflow-x-auto">
+              <p className="font-medium text-sm mb-1">Sample Data (3 rows):</p>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr>
+                    {previewData.length > 0 &&
+                      Object.keys(previewData[0]).map((col) => (
+                        <th key={col} className="border px-2 py-1 font-medium">
+                          {col}
+                        </th>
+                      ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewData.slice(0, 3).map((row, i) => (
+                    <tr key={i} className="hover:bg-gray-200">
+                      {Object.values(row).map((val, j) => (
+                        <td key={j} className="border px-2 py-1">
+                          {val === null || val === undefined
+                            ? "N/A"
+                            : String(val)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Alerts Section */}
       {alerts.length > 0 && (
-        <div className="mb-6 bg-yellow-100 border-l-4 border-yellow-500 p-4">
-          <h3 className="font-semibold text-yellow-800">Warnings</h3>
-          <ul className="list-disc pl-5 text-yellow-700">
+        <div className="mb-4 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+          <h3 className="font-semibold text-yellow-800 mb-2">
+            Alerts & Suggestions
+          </h3>
+          <ul className="list-disc pl-5 text-yellow-700 text-sm">
             {alerts.map((alert, index) => (
               <li key={index}>{alert}</li>
             ))}
@@ -157,173 +358,261 @@ export default function DataCleaning() {
         </div>
       )}
 
-      {/* Options Panel */}
-      <div className="grid gap-4 mb-6">
-        {/* Missing Value Strategy */}
-        <div>
-          <label className="block font-medium">Missing Value Strategy</label>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* Imputation */}
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h4 className="text-lg font-semibold mb-2">Missing Values</h4>
           <select
             onChange={(e) =>
-              setOptions((prev) => ({
-                ...prev,
-                fillna_strategy: e.target.value,
-              }))
+              handleOptionChange("fillna_strategy", e.target.value)
             }
-            value={options.fillna_strategy || ""}
-            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2"
+            value={options.fillna_strategy}
+            className="w-full rounded border-gray-300 px-3 py-1 mb-2"
+            title="Choose how to fill missing values in selected columns."
           >
-            <option value="">-- Choose --</option>
-            <option value="mean">Mean</option>
-            <option value="median">Median</option>
-            <option value="mode">Mode</option>
+            <option value="">No Imputation</option>
+            <option value="mean">Mean (numeric)</option>
+            <option value="median">Median (numeric)</option>
+            <option value="mode">Mode (categorical)</option>
             <option value="zero">Zero</option>
+            <option value="knn">KNN (numeric)</option>
           </select>
+          <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+            {columns.map((col) => (
+              <label key={col} className="flex items-center text-sm">
+                <input
+                  type="checkbox"
+                  checked={options.selected_columns.fillna.includes(col)}
+                  onChange={(e) =>
+                    handleColumnSelect("fillna", col, e.target.checked)
+                  }
+                  className="mr-1"
+                />
+                {col}
+              </label>
+            ))}
+          </div>
         </div>
+
         {/* Scaling */}
-        <div>
-          <label className="block font-medium">Scaling</label>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h4 className="text-lg font-semibold mb-2">Scale Numeric Columns</h4>
           <select
-            onChange={(e) =>
-              setOptions((prev) => ({ ...prev, scale: e.target.value }))
-            }
-            value={options.scale || ""}
-            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2"
+            onChange={(e) => handleOptionChange("scale", e.target.value)}
+            value={options.scale}
+            className="w-full rounded border-gray-300 px-3 py-1 mb-2"
+            title="Scale numeric columns to a common range."
           >
-            <option value="">-- Choose --</option>
-            <option value="normalize">Min-Max</option>
-            <option value="standardize">Z-score</option>
+            <option value="">No Scaling</option>
+            <option value="normalize">Min-Max (0-1)</option>
+            <option value="standardize">Z-Score</option>
+            <option value="robust">Robust (IQR)</option>
           </select>
+          <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+            {columns.map((col) => (
+              <label key={col} className="flex items-center text-sm">
+                <input
+                  type="checkbox"
+                  checked={options.selected_columns.scale.includes(col)}
+                  onChange={(e) =>
+                    handleColumnSelect("scale", col, e.target.checked)
+                  }
+                  className="mr-1"
+                />
+                {col}
+              </label>
+            ))}
+          </div>
         </div>
+
         {/* Encoding */}
-        <div>
-          <label className="block font-medium">Categorical Encoding</label>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h4 className="text-lg font-semibold mb-2">
+            Encode Categorical Columns
+          </h4>
           <select
-            onChange={(e) =>
-              setOptions((prev) => ({ ...prev, encoding: e.target.value }))
-            }
-            value={options.encoding || ""}
-            className="mt-1 block w-full rounded border border-gray-300 px-3 py-2"
+            onChange={(e) => handleOptionChange("encoding", e.target.value)}
+            value={options.encoding}
+            className="w-full rounded border-gray-300 px-3 py-1 mb-2"
+            title="Convert categorical columns to numeric format."
           >
-            <option value="">-- Choose --</option>
+            <option value="">No Encoding</option>
             <option value="onehot">One-Hot</option>
             <option value="label">Label</option>
+            <option value="ordinal">Ordinal</option>
           </select>
+          <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+            {columns.map((col) => (
+              <label key={col} className="flex items-center text-sm">
+                <input
+                  type="checkbox"
+                  checked={options.selected_columns.encoding.includes(col)}
+                  onChange={(e) =>
+                    handleColumnSelect("encoding", col, e.target.checked)
+                  }
+                  className="mr-1"
+                />
+                {col}
+              </label>
+            ))}
+          </div>
         </div>
-        {/* Lowercase Columns */}
-        <div className="flex items-center">
-          <input
-            type="checkbox"
-            id="lowercase_headers"
-            checked={options.lowercase_headers || false}
+
+        {/* Outliers */}
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h4 className="text-lg font-semibold mb-2">Handle Outliers</h4>
+          <select
             onChange={(e) =>
-              setOptions((prev) => ({
-                ...prev,
-                lowercase_headers: e.target.checked,
-              }))
+              handleOptionChange("outlier_method", e.target.value)
             }
-            className="mr-2"
-          />
-          <label htmlFor="lowercase_headers" className="font-medium">
-            Lowercase Headers
-          </label>
+            value={options.outlier_method}
+            className="w-full rounded border-gray-300 px-3 py-1 mb-2"
+            title="Remove or cap outliers in numeric columns."
+          >
+            <option value="">No Handling</option>
+            <option value="iqr">IQR Removal</option>
+            <option value="zscore">Z-Score Removal</option>
+            <option value="cap">Cap at Percentiles</option>
+          </select>
+          <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+            {columns.map((col) => (
+              <label key={col} className="flex items-center text-sm">
+                <input
+                  type="checkbox"
+                  checked={options.selected_columns.outliers.includes(col)}
+                  onChange={(e) =>
+                    handleColumnSelect("outliers", col, e.target.checked)
+                  }
+                  className="mr-1"
+                />
+                {col}
+              </label>
+            ))}
+          </div>
         </div>
-        {/* Drop NA */}
-        <div className="flex items-center">
-          <input
-            type="checkbox"
-            id="dropna"
-            checked={options.dropna || false}
-            onChange={(e) =>
-              setOptions((prev) => ({ ...prev, dropna: e.target.checked }))
-            }
-            className="mr-2"
-          />
-          <label htmlFor="dropna" className="font-medium">
-            Drop Rows with NA
-          </label>
+
+        {/* Conversions */}
+        <div className="col-span-2 bg-gray-50 p-4 rounded-lg">
+          <h4 className="text-lg font-semibold mb-2">Convert Data Types</h4>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {columns.map((col) => (
+              <div key={col}>
+                <label className="text-sm">{col}</label>
+                <select
+                  onChange={(e) => handleConversion(col, e.target.value)}
+                  value={options.conversions[col] || ""}
+                  className="w-full rounded border-gray-300 px-2 py-1 text-xs"
+                  title={`Change the data type of '${col}'.`}
+                >
+                  <option value="">No Change</option>
+                  <option value="numeric">Numeric</option>
+                  <option value="date">Date</option>
+                  <option value="category">Category</option>
+                </select>
+              </div>
+            ))}
+          </div>
         </div>
-        {/* Remove Duplicates */}
-        <div className="flex items-center">
-          <input
-            type="checkbox"
-            id="remove_duplicates"
-            checked={options.remove_duplicates || false}
-            onChange={(e) =>
-              setOptions((prev) => ({
-                ...prev,
-                remove_duplicates: e.target.checked,
-              }))
-            }
-            className="mr-2"
-          />
-          <label htmlFor="remove_duplicates" className="font-medium">
-            Remove Duplicate Rows
-          </label>
+
+        {/* Binning */}
+        <div className="col-span-2 bg-gray-50 p-4 rounded-lg">
+          <h4 className="text-lg font-semibold mb-2">Bin Numeric Columns</h4>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {columns.map((col) => (
+              <div key={col}>
+                <label className="text-sm">{col}</label>
+                <input
+                  type="number"
+                  min="2"
+                  placeholder="Bins"
+                  value={options.binning[col] || ""}
+                  onChange={(e) => handleBinning(col, e.target.value)}
+                  className="w-full rounded border-gray-300 px-2 py-1 text-xs"
+                  title={`Group '${col}' into discrete bins (e.g., price ranges).`}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Preview & Apply Buttons */}
-      <div className="flex space-x-4 mb-6">
+      <div className="flex items-center space-x-4 mb-4">
+        <label className="flex items-center text-sm">
+          <input
+            type="checkbox"
+            checked={options.lowercase_headers}
+            onChange={(e) =>
+              handleOptionChange("lowercase_headers", e.target.checked)
+            }
+            className="mr-1"
+          />
+          Lowercase Headers
+        </label>
+        <label className="flex items-center text-sm">
+          <input
+            type="checkbox"
+            checked={options.dropna}
+            onChange={(e) => handleOptionChange("dropna", e.target.checked)}
+            className="mr-1"
+          />
+          Drop NA Rows
+        </label>
+        <label className="flex items-center text-sm">
+          <input
+            type="checkbox"
+            checked={options.remove_duplicates}
+            onChange={(e) =>
+              handleOptionChange("remove_duplicates", e.target.checked)
+            }
+            className="mr-1"
+          />
+          Remove Duplicates
+        </label>
+      </div>
+
+      <div className="flex justify-center space-x-4 mb-4">
         <button
           onClick={handlePreview}
           className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-500 disabled:opacity-50"
           disabled={loading}
         >
-          Preview Cleaning
+          {loading ? "Previewing..." : "Preview Cleaning"}
         </button>
         {beforeStats && afterStats && (
           <button
             onClick={handleSave}
-            disabled={saving || alerts.length > 0}
+            disabled={saving || alerts.some((a) => a.includes("Failed"))} // Only disable for critical errors
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-500 disabled:opacity-50"
           >
-            {saving ? "Saving…" : "Save Cleaned Dataset"}
+            {saving ? "Saving..." : "Save Cleaned Dataset"}
           </button>
         )}
       </div>
 
-      {/* Stats Comparison */}
       {beforeStats && afterStats && (
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <h3 className="text-xl font-semibold mb-2">Before Stats</h3>
-            {renderStats(beforeStats)}
-          </div>
-          <div>
-            <h3 className="text-xl font-semibold mb-2">After Stats</h3>
-            {renderStats(afterStats)}
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {renderStats(beforeStats, "Before Cleaning")}
+          {renderStats(afterStats, "After Cleaning")}
         </div>
       )}
 
-      {/* Cleaned Data Preview */}
-      {cleanedData.length > 0 && (
-        <div className="mt-6">
-          <h3 className="text-xl font-semibold mb-2">Cleaned Data Preview</h3>
-          <div className="overflow-auto bg-gray-50 p-4 rounded">
-            <table className="table-auto w-full text-sm text-left text-gray-700">
-              <thead>
-                <tr>
-                  {Object.keys(cleanedData[0]).map((col) => (
-                    <th key={col} className="border px-2 py-1 font-medium">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {cleanedData.slice(0, 5).map((row, i) => (
-                  <tr key={i} className="hover:bg-gray-100">
-                    {Object.values(row).map((val, j) => (
-                      <td key={j} className="border px-2 py-1">
-                        {val === null || val === undefined ? "" : String(val)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {(previewData.length > 0 || cleanedData.length > 0) && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {previewData.length > 0 &&
+            renderPreviewTable(previewData, "Original Data")}
+          {cleanedData.length > 0 &&
+            renderPreviewTable(cleanedData, "Cleaned Data")}
+        </div>
+      )}
+
+      {visImage && (
+        <div className="mt-4 text-center">
+          <h3 className="text-lg font-semibold mb-2">Correlation Heatmap</h3>
+          <img
+            src={`data:image/png;base64,${visImage}`}
+            alt="Correlation Heatmap"
+            className="max-w-full rounded shadow mx-auto"
+          />
         </div>
       )}
     </div>

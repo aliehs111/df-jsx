@@ -1,5 +1,4 @@
 # server/routers/databot.py
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -27,7 +26,7 @@ async def databot_query(
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    # ─── Build Context ────────────────────────────────
+    # Build Context
     context = f"""
 Dataset Title: {dataset.title}
 Description: {dataset.description or "No description"}
@@ -48,7 +47,7 @@ Current Stage: {dataset.current_stage or "N/A"}
                 f"nulls={meta.get('null_count')}\n"
             )
 
-    # Processing Log (cleaning steps)
+    # Processing Log
     if dataset.processing_log:
         context += "\nProcessing Log (cleaning steps applied):\n"
         if isinstance(dataset.processing_log, str):
@@ -69,7 +68,7 @@ Current Stage: {dataset.current_stage or "N/A"}
         for col, mapping in dataset.categorical_mappings.items():
             context += f"- {col}: {mapping}\n"
 
-    # ─── OpenAI Query ─────────────────────────────────
+    # OpenAI Query
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -91,8 +90,21 @@ Current Stage: {dataset.current_stage or "N/A"}
 
     return {"answer": answer}
 
-
-
+@router.get("/suggestions/{dataset_id}")
+async def get_databot_suggestions(dataset_id: int, db: AsyncSession = Depends(get_async_db)):
+    ds = await db.get(DatasetModel, dataset_id)
+    if not ds:
+        raise HTTPException(404, "Dataset not found")
+    suggestions = []
+    for col, meta in (ds.column_metadata or {}).items():
+        if meta["dtype"] == "object" and any(kw in col.lower() for kw in ["price", "amount", "value", "market", "volume"]):
+            suggestions.append(f"Convert '{col}' to numeric (currently object).")
+        if meta["null_count"] > 0:
+            suggestions.append(f"Handle missing values in '{col}' ({meta['null_count']} nulls).")
+        if meta["dtype"].startswith("int") or meta["dtype"].startswith("float"):
+            if meta.get("std", 0) > meta.get("mean", 0) * 2:
+                suggestions.append(f"Consider binning '{col}' due to high variance (std={meta.get('std', 0):.2f}).")
+    return {"suggestions": suggestions}
 
 
 
