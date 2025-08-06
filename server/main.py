@@ -161,7 +161,7 @@ app.include_router(user_router, prefix="/api")
 app.include_router(datasets_router, prefix="/api")
 app.include_router(insights_router, prefix="/api", tags=["insights"])
 app.include_router(model_runner_router, prefix="/api", tags=["models"])
-app.include_router(databot.router, prefix="/api", tags=["Databot"])
+app.include_router(databot.router, prefix="/api/databot")
 app.include_router(datarows.router, prefix="/api")
 
 class CleanRequest(BaseModel):

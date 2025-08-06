@@ -67,10 +67,13 @@ export default function DataCleaning() {
         const backendUrl =
           process.env.NODE_ENV === "development"
             ? "http://127.0.0.1:8000"
-            : "https://your-northflank-backend-url"; // Replace with your Northflank URL
-        const res = await fetch(`${backendUrl}/api/databot/suggestions/${id}`, {
-          credentials: "include",
-        });
+            : process.env.NORTHFLANK_GPU_URL;
+        const res = await fetch(
+          `${backendUrl}/api/databot/suggestions/${id}?page=data-cleaning`,
+          {
+            credentials: "include",
+          }
+        );
         if (res.status === 404) {
           setAlerts((prev) => [
             ...new Set([
@@ -97,6 +100,7 @@ export default function DataCleaning() {
   }, [id]);
 
   const handleColumnSelect = (operation, column, checked) => {
+    logAction(`Selected column '${column}' for ${operation}: ${checked}`);
     setOptions((prev) => ({
       ...prev,
       selected_columns: {
@@ -106,6 +110,15 @@ export default function DataCleaning() {
           : prev.selected_columns[operation].filter((c) => c !== column),
       },
     }));
+  };
+
+  const logAction = (action) => {
+    fetch(`/api/databot/track/${id}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    }).catch((err) => console.error("Failed to log action:", err));
   };
 
   const handleConversion = (column, type) => {
@@ -127,7 +140,12 @@ export default function DataCleaning() {
     setAlerts([]);
     setVisImage(null);
     try {
-      console.log("Sending options to /clean-preview:", options); // Debug
+      await fetch(`/api/databot/state/${id}`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataset_id: Number(id), options }),
+      });
       const res = await fetch(`/api/datasets/${id}/clean-preview`, {
         method: "POST",
         credentials: "include",

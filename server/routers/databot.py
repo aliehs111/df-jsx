@@ -1,5 +1,5 @@
 # server/routers/databot.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from openai import OpenAI
@@ -8,9 +8,20 @@ import os
 from server.database import get_async_db
 from server.models import Dataset as DatasetModel
 from server import schemas
-
-router = APIRouter(prefix="/databot", tags=["Databot"])
+from pydantic import BaseModel
+router = APIRouter()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+class DatasetState(BaseModel):
+    dataset_id: int
+    options: dict
+
+dataset_states = {}
+
+class Action(BaseModel):
+    action: str
+
+actions_store = {}  # Temporary in-memory store; replace with DB later
 
 @router.post("/query")
 async def databot_query(
@@ -91,25 +102,47 @@ Current Stage: {dataset.current_stage or "N/A"}
     return {"answer": answer}
 
 @router.get("/suggestions/{dataset_id}")
-async def get_databot_suggestions(dataset_id: int, db: AsyncSession = Depends(get_async_db)):
-    ds = await db.get(DatasetModel, dataset_id)
-    if not ds:
-        raise HTTPException(404, "Dataset not found")
+async def get_suggestions(dataset_id: int, page: str = Query(None), db: AsyncSession = Depends(get_async_db)):
     suggestions = []
-    for col, meta in (ds.column_metadata or {}).items():
-        if meta["dtype"] == "object" and any(kw in col.lower() for kw in ["price", "amount", "value", "market", "volume"]):
-            suggestions.append(f"Convert '{col}' to numeric (currently object).")
-        if meta["null_count"] > 0:
-            suggestions.append(f"Handle missing values in '{col}' ({meta['null_count']} nulls).")
-        if meta["dtype"].startswith("int") or meta["dtype"].startswith("float"):
-            if meta.get("std", 0) > meta.get("mean", 0) * 2:
-                suggestions.append(f"Consider binning '{col}' due to high variance (std={meta.get('std', 0):.2f}).")
+    result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
+    dataset = result.scalar_one_or_none()
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    
+    state = dataset_states.get(dataset_id, {})
+    if page == "data-cleaning":
+        if dataset.column_metadata:
+            for col, meta in dataset.column_metadata.items():
+                if col in state.get("selected_columns", {}).get("fillna", []):
+                    suggestions.append(f"Impute '{col}' with {state.get('fillna_strategy', 'unknown')} (has {meta['null_count']} nulls).")
+                elif meta["null_count"] > 0:
+                    suggestions.append(f"Handle missing values in '{col}' ({meta['null_count']} nulls).")
+                if meta["dtype"] == "object" and meta["n_unique"] < 10:
+                    suggestions.append(f"Encode '{col}' as categorical (low unique values: {meta['n_unique']}).")
+                if meta["dtype"] in ["float64", "int64"]:
+                    suggestions.append(f"Scale '{col}' to normalize numeric data.")
+        for action in actions_store.get(dataset_id, [])[-5:]:
+            if "Selected column" in action:
+                col = action.split("'")[1]
+                suggestions.append(f"Since you selected '{col}', consider specific cleaning options.")
+        if dataset.processing_log:
+            suggestions.append(f"Previous cleaning steps applied: {dataset.processing_log}")
+    else:
+        suggestions.append("General dataset review: Check for missing values and dtypes.")
     return {"suggestions": suggestions}
 
 
 
+@router.post("/track/{dataset_id}")
+async def track_action(dataset_id: int, action: Action):
+    if dataset_id not in actions_store:
+        actions_store[dataset_id] = []
+    actions_store[dataset_id].append(action.action)
+    return {"status": "ok"}
 
-
-
+@router.post("/state/{dataset_id}")
+async def save_state(dataset_id: int, state: DatasetState):
+    dataset_states[dataset_id] = state.options
+    return {"status": "ok"}
 
 
