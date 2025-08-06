@@ -192,6 +192,7 @@ async def on_startup():
         global openai_client
         openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+
 @app.post("/api/upload-csv", dependencies=[Depends(current_user)])
 async def upload_csv(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
@@ -200,20 +201,31 @@ async def upload_csv(file: UploadFile = File(...)):
     contents = await file.read()
     s3_key = upload_bytes(contents, file.filename)
 
-    try:
-        df = pd.read_csv(io.StringIO(contents.decode("ISO-8859-1")))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid CSV: {str(e)}")
+    # Try multiple encodings to read the CSV
+    df = None
+    encodings = ["utf-8", "iso-8859-1", "latin1", "cp1252"]
+    for encoding in encodings:
+        try:
+            df = pd.read_csv(io.StringIO(contents.decode(encoding)))
+            break
+        except Exception:
+            continue
 
-    df = df.replace([np.inf, -np.inf], np.nan).where(pd.notna(df), None)
-    for col in df.select_dtypes(include=["float64", "int64"]).columns:
-        df[col] = df[col].astype(object).where(df[col].notnull(), None)
+    if df is None:
+        raise HTTPException(status_code=400, detail="Could not decode CSV with common encodings.")
 
+    # Clean up infinities and NaNs
+    df = df.replace([np.inf, -np.inf], np.nan)
+
+    # Capture df.info() output
     buf = io.StringIO()
     df.info(buf=buf)
     info_output = buf.getvalue()
 
+    # Summary statistics
     summary = df.describe(include="all").replace([np.inf, -np.inf], np.nan).fillna("")
+
+    # Column metadata
     column_metadata = {
         col: {
             "dtype": str(df[col].dtype),
@@ -223,8 +235,25 @@ async def upload_csv(file: UploadFile = File(...)):
         for col in df.columns
     }
 
+    # Sanitize preview for JSON
+    def sanitize_value(val):
+        if isinstance(val, (np.floating, float)):
+            return None if (math.isnan(val) or math.isinf(val)) else float(val)
+        if isinstance(val, (np.integer, int)):
+            return int(val)
+        if isinstance(val, (np.bool_, bool)):
+            return bool(val)
+        if isinstance(val, (pd.Timestamp, np.datetime64)):
+            return str(val)
+        return str(val) if val is not None else None
+
+    preview = [
+        {k: sanitize_value(v) for k, v in row.items()}
+        for row in df.head(10).to_dict(orient="records")
+    ]
+
     insights = {
-        "preview": df.head().to_dict(orient="records"),
+        "preview": preview,
         "shape": list(df.shape),
         "columns": df.columns.tolist(),
         "dtypes": df.dtypes.astype(str).to_dict(),
@@ -236,7 +265,7 @@ async def upload_csv(file: UploadFile = File(...)):
         "column_metadata": column_metadata,
         "n_rows": len(df),
         "n_columns": len(df.columns),
-        "has_missing_values": bool(df.isnull().values.any()),  # Cast to Python bool
+        "has_missing_values": bool(df.isnull().values.any()),
         "has_cleaned_data": False,
     }
 
@@ -892,14 +921,19 @@ async def correlation_matrix(dataset_id: int, db: AsyncSession = Depends(get_asy
 
 
 
-@app.post("/api/datasets/{dataset_id}/clean-preview")
+from fastapi import Request
+
+@datasets_router.post("/datasets/{dataset_id}/clean-preview")
 async def clean_preview(
     dataset_id: int,
-    req: CleanPreviewRequest,
+    request: Request,
     db: AsyncSession = Depends(get_async_db),
     user=Depends(current_user),
 ):
-    logger.info(f"Dataset {dataset_id} clean-preview operations: {req.operations}")
+    req = await request.json()  # ✅ Explicitly load JSON
+
+    """Generate preview of dataset before and after cleaning operations."""
+    logger.info(f"Dataset {dataset_id} clean-preview operations: {req.get('operations')}")
     ds = await db.get(DatasetModel, dataset_id)
     if not ds or not ds.s3_key:
         raise HTTPException(404, "Dataset or raw data not found")
@@ -923,18 +957,20 @@ async def clean_preview(
         logger.error(f"Failed to load CSV {ds.s3_key}: {str(e)}")
         raise HTTPException(400, f"Failed to load CSV: {str(e)}")
 
-    df_cleaned = df.copy()
-    alerts = []
-
+    # Compute before_stats on original data
     def get_stats(df):
         return {
             "shape": list(df.shape),
             "null_counts": {col: int(df[col].isnull().sum()) for col in df.columns},
             "dtypes": {col: str(dtype) for col, dtype in df.dtypes.items()},
         }
+    before_stats = get_stats(df)
+    logger.info(f"Before stats dtypes: {before_stats['dtypes']}")  # Debug log
 
-    before_stats = get_stats(df_cleaned)
-    ops = req.operations
+    # Create copy for cleaning
+    df_cleaned = df.copy()
+    alerts = []
+    ops = req.get("operations", {})
 
     # Lowercase Headers
     if ops.get("lowercase_headers"):
@@ -1116,6 +1152,7 @@ async def clean_preview(
         alerts.append("Warning: Duplicates remain after processing.")
 
     after_stats = get_stats(df_cleaned)
+    logger.info(f"After stats dtypes: {after_stats['dtypes']}")  # Debug log
 
     # Sanitize Preview
     def sanitize_value(val):
@@ -1135,7 +1172,7 @@ async def clean_preview(
     ]
 
     # Save to DB and S3 if requested
-    if req.save:
+    if req.get("save"):
         try:
             ds.cleaned_data = df_cleaned.to_dict(orient="records")
             ds.n_rows, ds.n_columns = df_cleaned.shape
@@ -1155,7 +1192,7 @@ async def clean_preview(
                 }
                 for col in df_cleaned.columns
             }
-            ds.normalization_params = sanitize_floats(norm_params)
+            ds.normalization_params = norm_params
             ds.categorical_mappings = cat_maps
             buf = io.StringIO()
             df_cleaned.to_csv(buf, index=False)
@@ -1168,17 +1205,15 @@ async def clean_preview(
             alerts.append(f"Failed to save cleaned data: {str(e)}")
             raise HTTPException(500, f"Failed to save cleaned data: {str(e)}")
 
-    return {
+    response = {
         "before_stats": before_stats,
         "after_stats": after_stats,
         "alerts": alerts,
         "preview": preview,
         "vis_image_base64": vis_image_base64,
-        "saved": req.save,
+        "saved": req.get("save", False),
     }
-    # Log response
-    logger.info(f"Dataset {dataset_id} response: {json.dumps(response, default=str)}")
-
+    logger.info(f"Dataset {dataset_id} clean-preview response: {json.dumps(response, default=str)}")
     return response
 
 
