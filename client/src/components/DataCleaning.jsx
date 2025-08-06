@@ -67,13 +67,15 @@ export default function DataCleaning() {
         const backendUrl =
           process.env.NODE_ENV === "development"
             ? "http://127.0.0.1:8000"
-            : process.env.NORTHFLANK_GPU_URL;
+            : process.env.NORTHFLANK_GPU_URL || "";
+
         const res = await fetch(
           `${backendUrl}/api/databot/suggestions/${id}?page=data-cleaning`,
           {
             credentials: "include",
           }
         );
+
         if (res.status === 404) {
           setAlerts((prev) => [
             ...new Set([
@@ -83,7 +85,9 @@ export default function DataCleaning() {
           ]);
           return;
         }
+
         if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+
         const data = await res.json();
         setAlerts((prev) => [...new Set([...prev, ...data.suggestions])]);
       } catch (err) {
