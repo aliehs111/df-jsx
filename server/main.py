@@ -1237,3 +1237,8 @@ if "DYNO" in os.environ:
         print(f"⚠️  No frontend build found at {DIST}, skipping static mount")
 else:
     print("⚠️  Development mode: skipping static mount")
+
+
+print("🛠 Registered Routes:")
+for route in app.routes:
+    print(f"{route.path} → {route.methods}")
