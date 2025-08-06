@@ -8,9 +8,12 @@ export default function DataCleaning() {
   const [previewData, setPreviewData] = useState([]);
   const [cleanedData, setCleanedData] = useState([]);
   const [columns, setColumns] = useState([]);
+  const [columnMetadata, setColumnMetadata] = useState(null);
+  const [nRows, setNRows] = useState(0);
   const [beforeStats, setBeforeStats] = useState(null);
   const [afterStats, setAfterStats] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [selectedSuggestion, setSelectedSuggestion] = useState("");
   const [options, setOptions] = useState({
     fillna_strategy: "",
     scale: "",
@@ -28,7 +31,6 @@ export default function DataCleaning() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [visImage, setVisImage] = useState(null);
-  const [showPeek, setShowPeek] = useState(false); // New: Toggle for dataset peek
 
   useEffect(() => {
     const fetchDataset = async () => {
@@ -40,10 +42,17 @@ export default function DataCleaning() {
         if (res.status === 404) return navigate("/datasets");
         if (!res.ok) throw new Error("Cannot load dataset");
         const data = await res.json();
+        console.log("API Response:", data);
         setPreviewData(data.preview_data || []);
-        setColumns(data.columns || Object.keys(data.preview_data[0] || {}));
-        setFilename(data.filename);
+        setColumns(
+          data.columns ||
+            (data.preview_data?.[0] ? Object.keys(data.preview_data[0]) : [])
+        );
+        setColumnMetadata(data.column_metadata || null);
+        setNRows(data.n_rows || 0);
+        setFilename(data.filename || `dataset_${id}`);
       } catch (err) {
+        console.error("fetchDataset error:", err);
         setError(err.message || "Failed to load dataset");
       } finally {
         setLoading(false);
@@ -75,7 +84,7 @@ export default function DataCleaning() {
         const data = await res.json();
         setAlerts((prev) => [...new Set([...prev, ...data.suggestions])]);
       } catch (err) {
-        console.error("Failed to fetch Databot suggestions", err);
+        console.error("Failed to fetch Databot suggestions:", err);
         setAlerts((prev) => [
           ...new Set([
             ...prev,
@@ -235,6 +244,41 @@ export default function DataCleaning() {
     </div>
   );
 
+  const getInfoOutput = () => {
+    if (
+      !columnMetadata ||
+      Object.keys(columnMetadata).length === 0 ||
+      columns.length === 0
+    ) {
+      return "No dataset information available";
+    }
+    const dtypeCounts = Object.values(columnMetadata).reduce((acc, meta) => {
+      const dtype = meta.dtype || "unknown";
+      acc[dtype] = (acc[dtype] || 0) + 1;
+      return acc;
+    }, {});
+    return `<class 'pandas.core.frame.DataFrame'>
+RangeIndex: ${nRows} entries, 0 to ${nRows - 1}
+Data columns (total ${columns.length} columns):
+ #   Column                         Non-Null Count  Dtype  
+---  ------                         --------------  -----  
+${columns
+  .map((name, index) => {
+    const meta = columnMetadata[name] || {};
+    const nonNullCount =
+      meta.null_count !== undefined ? nRows - meta.null_count : "Unknown";
+    const dtype = meta.dtype || "unknown";
+    return ` ${index.toString().padStart(2, " ")}  ${name.padEnd(
+      30
+    )} ${nonNullCount.toString().padEnd(15)} ${dtype}`;
+  })
+  .join("\n")}
+dtypes: ${Object.entries(dtypeCounts)
+      .map(([dtype, count]) => `${dtype}(${count})`)
+      .join(", ")}
+memory usage: Unknown`;
+  };
+
   if (loading)
     return (
       <div className="p-4 text-center text-lg text-gray-600">Loading...</div>
@@ -255,108 +299,47 @@ export default function DataCleaning() {
             strokeLinecap="round"
             strokeLinejoin="round"
             strokeWidth="2"
-            d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+            d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-6l-2-2H5a2 2 0 0 0-2 2z"
           />
         </svg>
         Clean Dataset: {filename}
       </h2>
 
-      {/* Dataset Peek Section */}
-      <div className="mb-4">
-        <button
-          onClick={() => setShowPeek(!showPeek)}
-          className="text-blue-600 hover:underline flex items-center text-sm"
-          title="View a quick summary of the dataset."
-        >
-          <svg
-            className={`w-4 h-4 mr-1 transform ${showPeek ? "rotate-90" : ""}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M9 5l7 7-7 7"
-            />
-          </svg>
-          {showPeek ? "Hide Dataset Peek" : "Show Dataset Peek"}
-        </button>
-        {showPeek && (
-          <div className="bg-gray-50 p-4 rounded-lg mt-2">
-            <h3 className="text-lg font-semibold mb-2">Dataset Peek</h3>
-            <p className="text-sm mb-2">
-              <strong>Rows × Columns:</strong>{" "}
-              {beforeStats
-                ? beforeStats.shape.join(" × ")
-                : `${previewData.length} × ${columns.length}`}
-            </p>
-            <div className="mb-2">
-              <p className="font-medium text-sm">Columns and Types:</p>
-              <table className="w-full text-xs">
-                <tbody>
-                  {beforeStats
-                    ? Object.entries(beforeStats.dtypes).map(([col, dtype]) => (
-                        <tr key={col}>
-                          <td className="border px-2 py-1">{col}</td>
-                          <td className="border px-2 py-1">{dtype}</td>
-                        </tr>
-                      ))
-                    : columns.map((col) => (
-                        <tr key={col}>
-                          <td className="border px-2 py-1">{col}</td>
-                          <td className="border px-2 py-1">Unknown</td>
-                        </tr>
-                      ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="overflow-x-auto">
-              <p className="font-medium text-sm mb-1">Sample Data (3 rows):</p>
-              <table className="w-full text-xs">
-                <thead>
-                  <tr>
-                    {previewData.length > 0 &&
-                      Object.keys(previewData[0]).map((col) => (
-                        <th key={col} className="border px-2 py-1 font-medium">
-                          {col}
-                        </th>
-                      ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {previewData.slice(0, 3).map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-200">
-                      {Object.values(row).map((val, j) => (
-                        <td key={j} className="border px-2 py-1">
-                          {val === null || val === undefined
-                            ? "N/A"
-                            : String(val)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {/* Side-by-Side Dataset Peek and Alerts & Suggestions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        {/* Dataset Peek Dropdown */}
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="font-semibold text-gray-800 mb-2">Dataset Peek</h3>
+          <details className="text-xs bg-white border border-gray-300 rounded">
+            <summary className="p-2 cursor-pointer bg-gray-100 hover:bg-gray-200">
+              Dataset Info
+            </summary>
+            <pre className="p-2 whitespace-pre-wrap">{getInfoOutput()}</pre>
+          </details>
+        </div>
+
+        {/* Alerts & Suggestions Dropdown */}
+        {alerts.length > 0 && (
+          <div className="bg-yellow-50 p-4 rounded-lg border-l-4 border-yellow-500">
+            <h3 className="font-semibold text-yellow-800 mb-2">
+              Alerts & Suggestions
+            </h3>
+            <select
+              className="w-full rounded border-gray-300 px-3 py-2 text-sm text-yellow-700 bg-yellow-50 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+              title="View Databot suggestions for cleaning the dataset"
+              value={selectedSuggestion}
+              onChange={(e) => setSelectedSuggestion(e.target.value)}
+            >
+              <option value="">Select a suggestion</option>
+              {alerts.map((alert, index) => (
+                <option key={index} value={alert}>
+                  {alert}
+                </option>
+              ))}
+            </select>
           </div>
         )}
       </div>
-
-      {/* Alerts Section */}
-      {alerts.length > 0 && (
-        <div className="mb-4 bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
-          <h3 className="font-semibold text-yellow-800 mb-2">
-            Alerts & Suggestions
-          </h3>
-          <ul className="list-disc pl-5 text-yellow-700 text-sm">
-            {alerts.map((alert, index) => (
-              <li key={index}>{alert}</li>
-            ))}
-          </ul>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         {/* Imputation */}
@@ -364,7 +347,10 @@ export default function DataCleaning() {
           <h4 className="text-lg font-semibold mb-2">Missing Values</h4>
           <select
             onChange={(e) =>
-              handleOptionChange("fillna_strategy", e.target.value)
+              setOptions((prev) => ({
+                ...prev,
+                fillna_strategy: e.target.value,
+              }))
             }
             value={options.fillna_strategy}
             className="w-full rounded border-gray-300 px-3 py-1 mb-2"
@@ -398,7 +384,9 @@ export default function DataCleaning() {
         <div className="bg-gray-50 p-4 rounded-lg">
           <h4 className="text-lg font-semibold mb-2">Scale Numeric Columns</h4>
           <select
-            onChange={(e) => handleOptionChange("scale", e.target.value)}
+            onChange={(e) =>
+              setOptions((prev) => ({ ...prev, scale: e.target.value }))
+            }
             value={options.scale}
             className="w-full rounded border-gray-300 px-3 py-1 mb-2"
             title="Scale numeric columns to a common range."
@@ -431,7 +419,9 @@ export default function DataCleaning() {
             Encode Categorical Columns
           </h4>
           <select
-            onChange={(e) => handleOptionChange("encoding", e.target.value)}
+            onChange={(e) =>
+              setOptions((prev) => ({ ...prev, encoding: e.target.value }))
+            }
             value={options.encoding}
             className="w-full rounded border-gray-300 px-3 py-1 mb-2"
             title="Convert categorical columns to numeric format."
@@ -463,7 +453,10 @@ export default function DataCleaning() {
           <h4 className="text-lg font-semibold mb-2">Handle Outliers</h4>
           <select
             onChange={(e) =>
-              handleOptionChange("outlier_method", e.target.value)
+              setOptions((prev) => ({
+                ...prev,
+                outlier_method: e.target.value,
+              }))
             }
             value={options.outlier_method}
             className="w-full rounded border-gray-300 px-3 py-1 mb-2"
@@ -542,7 +535,10 @@ export default function DataCleaning() {
             type="checkbox"
             checked={options.lowercase_headers}
             onChange={(e) =>
-              handleOptionChange("lowercase_headers", e.target.checked)
+              setOptions((prev) => ({
+                ...prev,
+                lowercase_headers: e.target.checked,
+              }))
             }
             className="mr-1"
           />
@@ -552,7 +548,9 @@ export default function DataCleaning() {
           <input
             type="checkbox"
             checked={options.dropna}
-            onChange={(e) => handleOptionChange("dropna", e.target.checked)}
+            onChange={(e) =>
+              setOptions((prev) => ({ ...prev, dropna: e.target.checked }))
+            }
             className="mr-1"
           />
           Drop NA Rows
@@ -562,7 +560,10 @@ export default function DataCleaning() {
             type="checkbox"
             checked={options.remove_duplicates}
             onChange={(e) =>
-              handleOptionChange("remove_duplicates", e.target.checked)
+              setOptions((prev) => ({
+                ...prev,
+                remove_duplicates: e.target.checked,
+              }))
             }
             className="mr-1"
           />
@@ -581,7 +582,7 @@ export default function DataCleaning() {
         {beforeStats && afterStats && (
           <button
             onClick={handleSave}
-            disabled={saving || alerts.some((a) => a.includes("Failed"))} // Only disable for critical errors
+            disabled={saving || alerts.some((a) => a.includes("Failed"))}
             className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-500 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save Cleaned Dataset"}
