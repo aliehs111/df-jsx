@@ -50,6 +50,7 @@ from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.requests import Request
+from fastapi.routing import APIRoute
 from botocore.exceptions import ClientError
 from fastapi import status
 
@@ -1239,6 +1240,11 @@ else:
     print("⚠️  Development mode: skipping static mount")
 
 
-print("🛠 Registered Routes:")
+
+
 for route in app.routes:
-    print(f"{route.path} → {route.methods}")
+    if isinstance(route, APIRoute):
+        print(f"{route.path} → {route.methods}")
+    else:
+        print(f"{route.path} → [non-APIRoute: {type(route).__name__}]")
+
