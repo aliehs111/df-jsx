@@ -1,0 +1,35 @@
+Method,Path,Name,Summary,Tags
+GET,/api/protected,protected_route,,
+POST,/api/auth/jwt/login,auth:jwt.login,,auth
+POST,/api/auth/jwt/logout,auth:jwt.logout,,auth
+POST,/api/auth/register,register:register,,auth
+GET,/api/users/me,users:current_user,,users
+PATCH,/api/users/me,users:patch_current_user,,users
+GET,/api/users/{id},users:user,,users
+PATCH,/api/users/{id},users:patch_user,,users
+DELETE,/api/users/{id},users:delete_user,,users
+GET,/api/datasets/cleaned,list_cleaned_datasets,,datasets
+GET,/api/datasets/{dataset_id}/columns,get_dataset_columns,,datasets
+GET,/api/datasets/{dataset_id}/column/{column_name}/unique,get_column_unique_values,,datasets
+POST,/api/datasets/{dataset_id}/clean-preview,clean_preview,,datasets
+POST,/api/insights/,generate_insights,,"insights, insights"
+GET,/api/models/available,get_available_models,,"models, models"
+POST,/api/models/run,run_model,,"models, models"
+POST,/api/databot/query,databot_query,,
+GET,/api/databot/suggestions/{dataset_id},get_suggestions,,
+POST,/api/databot/track/{dataset_id},track_action,,
+POST,/api/databot/state/{dataset_id},save_state,,
+GET,/api/datasets/{dataset_id}/rows,get_dataset_rows,,
+GET,/api/health,read_root,,
+POST,/api/upload-csv,upload_csv,,
+POST,/api/datasets/save,save_dataset,,
+GET,/api/datasets,list_datasets,,
+GET,/api/datasets/{dataset_id},get_dataset,,
+GET,/api/datasets/{dataset_id}/insights,get_dataset_insights,,
+DELETE,/api/datasets/{dataset_id},delete_dataset,,
+POST,/api/datasets/{dataset_id}/clean,clean_data,,
+POST,/api/datasets/{dataset_id}/process,process_dataset,,
+GET,/api/datasets/{dataset_id}/download,download_dataset,,
+GET,/api/datasets/{dataset_id}/heatmap,get_dataset_heatmap,,
+GET,/api/datasets/{dataset_id}/correlation,correlation_matrix,,
+GET,/api/plot,get_plot,,

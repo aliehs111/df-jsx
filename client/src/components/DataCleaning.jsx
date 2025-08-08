@@ -139,22 +139,67 @@ export default function DataCleaning() {
     }));
   };
 
+  alerts;
+
   const handlePreview = async () => {
     setLoading(true);
     setAlerts([]);
     setVisImage(null);
     try {
+      console.log("State payload:", { dataset_id: Number(id), options });
       await fetch(`/api/databot/state/${id}`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ dataset_id: Number(id), options }),
       });
+      const dataList = [
+        ...options.selected_columns.fillna.map((col) => ({
+          column: col,
+          operation: "fillna",
+          value: options.fillna_strategy,
+        })),
+        ...Object.entries(options.conversions).map(([col, type]) => ({
+          column: col,
+          operation: "convert",
+          value: type,
+        })),
+        ...options.selected_columns.scale.map((col) => ({
+          column: col,
+          operation: "scale",
+          value: options.scale,
+        })),
+        ...options.selected_columns.encoding.map((col) => ({
+          column: col,
+          operation: "encoding",
+          value: options.encoding,
+        })),
+        ...options.selected_columns.outliers.map((col) => ({
+          column: col,
+          operation: "outliers",
+          value: options.outlier_method,
+        })),
+        ...Object.entries(options.binning).map(([col, bins]) => ({
+          column: col,
+          operation: "binning",
+          value: bins,
+        })),
+      ].filter((op) => op.value);
+      console.log("Clean payload:", {
+        dataset_id: Number(id),
+        data: dataList,
+        operations: options,
+      });
       const res = await fetch(`/api/datasets/${id}/clean-preview`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataset_id: Number(id), operations: options }),
+        body: JSON.stringify({
+          dataset_id: Number(id),
+          data: dataList,
+          operations: options,
+          save: false, // Preview only
+        }),
       });
       if (res.status === 401) return navigate("/login");
       if (!res.ok) throw new Error((await res.text()) || "Preview failed");
@@ -174,19 +219,34 @@ export default function DataCleaning() {
   const handleSave = async () => {
     setSaving(true);
     setAlerts([]);
+
     try {
-      const res = await fetch(`/api/datasets/${id}/clean-preview`, {
+      // Map current options into clean and preprocess
+      const clean = {
+        dropna: options.dropna,
+        fillna_strategy: options.fillna_strategy,
+        lowercase_headers: options.lowercase_headers,
+        remove_duplicates: options.remove_duplicates,
+      };
+
+      const preprocess = {
+        scale: options.scale,
+        encoding: options.encoding,
+      };
+
+      const res = await fetch(`/api/datasets/${id}/process`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          dataset_id: Number(id),
-          operations: options,
-          save: true,
+          clean,
+          preprocess,
         }),
       });
+
       if (res.status === 401) return navigate("/login");
       if (!res.ok) throw new Error((await res.text()) || "Save failed");
+
       const data = await res.json();
       setAlerts(data.alerts || []);
       if (data.saved) navigate(`/datasets/${id}`);

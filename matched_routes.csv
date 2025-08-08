@@ -1,0 +1,35 @@
+Method,Path,Name,Summary,Tags,ReactFiles
+GET,/api/protected,protected_route,,,NOT FOUND
+POST,/api/auth/jwt/login,auth:jwt.login,,auth,MATCHED: components/SignIn.jsx
+POST,/api/auth/jwt/logout,auth:jwt.logout,,auth,MATCHED: components/Navbar.jsx
+POST,/api/auth/register,register:register,,auth,MATCHED: components/SignUp.jsx
+GET,/api/users/me,users:current_user,,users,"MATCHED: App.jsx, components/SignIn.jsx"
+PATCH,/api/users/me,users:patch_current_user,,users,"MATCHED: App.jsx, components/SignIn.jsx"
+GET,/api/users/{id},users:user,,users,"MATCHED (dynamic): App.jsx, components/SignIn.jsx"
+PATCH,/api/users/{id},users:patch_user,,users,"MATCHED (dynamic): App.jsx, components/SignIn.jsx"
+DELETE,/api/users/{id},users:delete_user,,users,"MATCHED (dynamic): App.jsx, components/SignIn.jsx"
+GET,/api/api/datasets/cleaned,list_cleaned_datasets,,datasets,NOT FOUND
+GET,/api/api/datasets/{dataset_id}/columns,get_dataset_columns,,datasets,NOT FOUND
+GET,/api/api/datasets/{dataset_id}/column/{column_name}/unique,get_column_unique_values,,datasets,NOT FOUND
+POST,/api/api/datasets/{dataset_id}/clean-preview,clean_preview,,datasets,NOT FOUND
+POST,/api/insights/,generate_insights,,"insights, insights",NOT FOUND
+GET,/api/models/available,get_available_models,,"models, models",MATCHED: components/Models.jsx
+POST,/api/models/run,run_model,,"models, models",MATCHED: components/Models.jsx
+POST,/api/databot/query,databot_query,,,MATCHED: components/Databot.jsx
+GET,/api/databot/suggestions/{dataset_id},get_suggestions,,,MATCHED (dynamic): components/DataCleaning.jsx
+POST,/api/databot/track/{dataset_id},track_action,,,MATCHED (dynamic): components/DataCleaning.jsx
+POST,/api/databot/state/{dataset_id},save_state,,,MATCHED (dynamic): components/DataCleaning.jsx
+GET,/api/datasets/{dataset_id}/rows,get_dataset_rows,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+GET,/api/health,read_root,,,NOT FOUND
+POST,/api/upload-csv,upload_csv,,,MATCHED: components/FileUpload.jsx
+POST,/api/datasets/save,save_dataset,,,MATCHED: components/FileUpload.jsx
+GET,/api/datasets,list_datasets,,,"MATCHED: components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/RecentDatasets.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+GET,/api/datasets/{dataset_id},get_dataset,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+GET,/api/datasets/{dataset_id}/insights,get_dataset_insights,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+DELETE,/api/datasets/{dataset_id},delete_dataset,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+POST,/api/datasets/{dataset_id}/clean,clean_data,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+POST,/api/datasets/{dataset_id}/process,process_dataset,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+GET,/api/datasets/{dataset_id}/download,download_dataset,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+GET,/api/datasets/{dataset_id}/heatmap,get_dataset_heatmap,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+GET,/api/datasets/{dataset_id}/correlation,correlation_matrix,,,"MATCHED (dynamic): components/DatasetsList.jsx, components/FileUpload.jsx, components/Models.jsx, components/DatasetDetail.jsx, components/DataCleaning.jsx, components/ProcessDataset.jsx"
+GET,/api/plot,get_plot,,,NOT FOUND

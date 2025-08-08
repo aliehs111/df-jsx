@@ -104,3 +104,7 @@ class CleanOperations(BaseModel):
     conversions: dict = {}
     binning: dict = {}
     selected_columns: dict = Field(default_factory=lambda: {"fillna": [], "scale": [], "encoding": [], "outliers": []})
+    
+class CleanRequest(BaseModel):
+    data: List[Dict[str, Any]]
+    operations: Dict[str, Any]
