@@ -23,6 +23,7 @@ import ProcessDataset from "./components/ProcessDataset";
 import DataInsights from "./components/DataInsights";
 import Models from "./components/Models";
 import Databot from "./components/Databot";
+import Predictors from "./components/Predictors";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -121,6 +122,10 @@ function App() {
         <Route
           path="/models"
           element={<ProtectedRoute element={<Models />} />}
+        />
+        <Route
+          path="/predictors"
+          element={<ProtectedRoute element={<Predictors />} />}
         />
 
         {/* Catch-all */}

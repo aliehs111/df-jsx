@@ -17,6 +17,24 @@ export default function Databot({ selectedDataset }) {
   const API_BASE =
     import.meta.env.MODE === "development" ? "http://127.0.0.1:8000" : "";
 
+  // NEW: allow opening as "ModelBot" with prediction context
+  const [botType, setBotType] = useState("databot"); // "databot" | "modelbot"
+  const [forcedContext, setForcedContext] = useState(null);
+  const [hasPrimed, setHasPrimed] = useState(false); // prepend context once
+
+  useEffect(() => {
+    const h = (e) => {
+      setBotType(e.detail?.botType || "databot");
+      setForcedContext(e.detail?.context || null);
+      setIsOpen(true);
+      if (e.detail?.botType === "modelbot") {
+        setInput("Explain these results and suggest a clearer rewrite.");
+      }
+    };
+    window.addEventListener("dfjsx-open-bot", h);
+    return () => window.removeEventListener("dfjsx-open-bot", h);
+  }, []);
+
   const askDatabot = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -27,19 +45,113 @@ export default function Databot({ selectedDataset }) {
     setIsLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/api/databot/query`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ dataset_id: datasetId, question: input }),
-      });
+      // Build question, optionally prepending compact model context once
+      // Build question; always carry model_context in model mode, prepend header only once
+      let question = userMessage.content;
+      let model_context = null;
 
-      const data = await res.json();
-      const assistantMessage = res.ok
-        ? { role: "assistant", content: data.answer }
+      if (botType === "modelbot" && forcedContext) {
+        const ctx = forcedContext;
+        const pct =
+          ctx?.result?.prob != null ? Math.round(ctx.result.prob * 100) : null;
+
+        // always send full model_context on every message
+        model_context = ctx;
+
+        // prepend a readable header only on the first message
+        if (!hasPrimed) {
+          const header = [
+            "Context: Accessibility Misinterpretation Risk.",
+            `Audience: ${ctx?.inputs?.audience || "?"}, Medium: ${
+              ctx?.inputs?.medium || "?"
+            }, Intent: ${ctx?.inputs?.intent ?? "—"}`,
+            pct != null && ctx?.result?.bucket
+              ? `Score: ${ctx.result.bucket} (${pct}%).`
+              : null,
+            ctx?.result?.confusion_sources?.length
+              ? `Confusion: ${ctx.result.confusion_sources
+                  .map((s) => `${s.type}: ${s.evidence?.join(", ")}`)
+                  .join(" | ")}`
+              : null,
+            ctx?.result?.rewrite ? `Rewrite ≤15: ${ctx.result.rewrite}` : null,
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          question = `${header}\n\nUser: ${question}`;
+          setHasPrimed(true);
+        }
+      }
+
+      // --- Request: support both dataset and prediction use-cases ---
+      let url =
+        botType === "modelbot" && !datasetId
+          ? `${API_BASE}/api/databot/query-model`
+          : `${API_BASE}/api/databot/query`;
+
+      const basePayload = {
+        question,
+        bot_type: botType,
+        ...(model_context ? { model_context } : {}),
+      };
+
+      let res;
+      if (datasetId != null) {
+        // Attempt 1: dataset_id as query param (common FastAPI pattern)
+        const url1 = `${url}?dataset_id=${encodeURIComponent(datasetId)}`;
+        res = await fetch(url1, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(basePayload),
+        });
+        // If validation fails, retry with dataset_id in body instead
+        if (res.status === 422) {
+          res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ ...basePayload, dataset_id: datasetId }),
+          });
+        }
+      } else {
+        // No dataset: send only the question + extras
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(basePayload),
+        });
+      }
+
+      let text;
+      try {
+        text = await res.text();
+      } catch {
+        text = "";
+      }
+
+      let data;
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = { detail: text || null };
+      }
+
+      const ok = res.ok && (data?.answer || data?.message);
+      const detailStr =
+        typeof data?.detail === "string"
+          ? data.detail
+          : JSON.stringify(data?.detail, null, 2);
+
+      const assistantMessage = ok
+        ? {
+            role: "assistant",
+            content: data.answer || data.message || "(no answer)",
+          }
         : {
             role: "assistant",
-            content: "Error: " + (data.detail || "Unknown error"),
+            content: `Error ${res.status}: ${detailStr || "(no details)"}`,
           };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -52,6 +164,15 @@ export default function Databot({ selectedDataset }) {
       setIsLoading(false);
     }
   };
+  // Listen for a background “set context” event (does NOT open the panel)
+  useEffect(() => {
+    const h = (e) => {
+      setBotType(e.detail?.botType || "databot");
+      setForcedContext(e.detail?.context || null);
+    };
+    window.addEventListener("dfjsx-set-bot-context", h);
+    return () => window.removeEventListener("dfjsx-set-bot-context", h);
+  }, []);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -111,12 +232,12 @@ export default function Databot({ selectedDataset }) {
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask about your dataset..."
               className="flex-grow border rounded-l px-3 py-2"
-              disabled={!datasetId}
+              disabled={isLoading}
             />
             <button
               type="submit"
               className="bg-green-600 text-white px-4 rounded-r hover:bg-green-500"
-              disabled={isLoading || !datasetId}
+              disabled={isLoading}
             >
               Send
             </button>

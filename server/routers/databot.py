@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from openai import OpenAI
 import os
+from typing import Optional, Dict, Any
 
 from server.database import get_async_db
 from server.models import Dataset as DatasetModel
@@ -131,6 +132,58 @@ async def get_suggestions(dataset_id: int, page: str = Query(None), db: AsyncSes
         suggestions.append("General dataset review: Check for missing values and dtypes.")
     return {"suggestions": suggestions}
 
+class ModelBotQuery(BaseModel):
+    question: str
+    model_context: Optional[Dict[str, Any]] = None
+
+@router.post("/query-model")
+async def databot_query_model(request: ModelBotQuery):
+    ctx = request.model_context or {}
+    prob = ctx.get("result", {}).get("prob")
+    bucket = ctx.get("result", {}).get("bucket")
+    confusion = ctx.get("result", {}).get("confusion_sources", [])
+    rewrite = ctx.get("result", {}).get("rewrite")
+
+    pct = f"{round(prob * 100)}%" if isinstance(prob, (int, float)) else "—"
+
+    # Build a compact context summary for the model explanation
+    summary_lines = [
+        "You are a helpful tutor for model explanations. Explain clearly and concisely.",
+        "Context: Accessibility Misinterpretation Risk prediction.",
+        f"Audience: {ctx.get('inputs', {}).get('audience', '?')}, "
+        f"Medium: {ctx.get('inputs', {}).get('medium', '?')}, "
+        f"Intent: {ctx.get('inputs', {}).get('intent', '—')}",
+        f"Score: {bucket} ({pct})." if bucket else None,
+    ]
+    if confusion:
+        summary_lines.append(
+            "Top confusion sources: " + " | ".join(
+                f"{s.get('type', '?')}: {', '.join(s.get('evidence', []) or [])}"
+                for s in confusion
+            )
+        )
+    if rewrite:
+        summary_lines.append(f"≤15-word rewrite: {rewrite}")
+
+    system_prompt = (
+        "You are ModelBot. Explain why the model predicted this score, point out the most "
+        "influential confusion sources, and suggest concrete improvements. Keep it practical."
+    )
+    user_prompt = "\n".join([ln for ln in summary_lines if ln]) + \
+                  f"\n\nUser question: {request.question.strip()}"
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                { "role": "system", "content": system_prompt },
+                { "role": "user", "content": user_prompt },
+            ],
+        )
+        answer = response.choices[0].message.content
+        return {"answer": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
 
 
 @router.post("/track/{dataset_id}")

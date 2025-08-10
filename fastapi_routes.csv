@@ -17,9 +17,11 @@ GET,/api/models/available,get_available_models,,"models, models"
 POST,/api/models/run,run_model,,"models, models"
 POST,/api/databot/query,databot_query,,
 GET,/api/databot/suggestions/{dataset_id},get_suggestions,,
+POST,/api/databot/query-model,databot_query_model,,
 POST,/api/databot/track/{dataset_id},track_action,,
 POST,/api/databot/state/{dataset_id},save_state,,
 GET,/api/datasets/{dataset_id}/rows,get_dataset_rows,,
+POST,/api/predictors/infer,infer,,predictors
 GET,/api/health,read_root,,
 POST,/api/upload-csv,upload_csv,,
 POST,/api/datasets/save,save_dataset,,

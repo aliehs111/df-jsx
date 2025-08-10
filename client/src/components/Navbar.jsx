@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { name: "Datasets", to: "/datasets" },
   { name: "Resources", to: "/resources" },
   { name: "Models", to: "/models" },
+  { name: "Predictors", to: "/predictors" },
 ];
 
 export default function Navbar({ user, setUser }) {

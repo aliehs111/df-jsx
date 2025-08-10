@@ -98,7 +98,7 @@ from server.schemas import CleanPreviewRequest
 from server.models import Dataset as DatasetModel
 from server.auth.userroutes import current_user
 from server.schemas import CleanRequest
-
+from server.routers.predictors import router as predictors_router
 # ─────────────────────────────────────────────────────────────────────────────
 #  END IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
@@ -164,7 +164,7 @@ app.include_router(insights_router, prefix="/api", tags=["insights"])
 app.include_router(model_runner_router, prefix="/api", tags=["models"])
 app.include_router(databot.router, prefix="/api/databot")
 app.include_router(datarows.router, prefix="/api")
-
+app.include_router(predictors_router, prefix="/api")
 
 
 
