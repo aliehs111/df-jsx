@@ -36,3 +36,26 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+
+# -------------------------------
+# Model training notebooks & data
+# -------------------------------
+
+# Ignore raw training datasets (large)
+notebooks/college_earnings/data/
+notebooks/college_earnings/data/**
+
+# Ignore common large/binary model files (keep JSON artifacts)
+*.pkl
+*.joblib
+*.pt
+*.h5
+
+# Ignore temporary notebook outputs
+.ipynb_checkpoints/
+notebooks/**/.ipynb_checkpoints/
+
+# Ignore notebook export scratch files (not final artifacts)
+notebooks/**/*.log
+notebooks/**/*.tmp
