@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import CollegeEarningsCard from "./CollegeEarningsCard";
 
 // Advanced Predictors page for df-jsx
 // - Adds a Settings panel to adjust model sensitivity, thresholds, category toggles, and audience effect.
@@ -170,6 +171,96 @@ export default function PredictorsPro() {
     );
   };
 
+  // ---- College Earnings state (inputs + result) ----
+  const [cip4, setCip4] = useState("1101");
+  const [degree2, setDegree2] = useState("Bachelor");
+  const [state2, setState2] = useState("CA");
+  const [pubPriv, setPubPriv] = useState("");
+
+  const [ceLoading, setCeLoading] = useState(false);
+  const [ceError, setCeError] = useState("");
+  const [ceResult, setCeResult] = useState(null);
+
+  // Simple option lists for the college card
+  const DEGREE_LEVELS = [
+    { label: "Associate", value: "Associate" },
+    { label: "Bachelor", value: "Bachelor" },
+    { label: "Master", value: "Master" },
+    { label: "Professional", value: "Professional" },
+    { label: "Doctoral", value: "Doctoral" },
+  ];
+  const STATES = [
+    "CA",
+    "NY",
+    "TX",
+    "FL",
+    "IL",
+    "PA",
+    "OH",
+    "GA",
+    "NC",
+    "MI",
+  ].map((s) => ({ label: s, value: s }));
+  const CIP4 = [
+    { label: "Computer Science (11.01)", value: "1101" },
+    { label: "Accounting (52.03)", value: "5203" },
+    { label: "Engineering (14.01)", value: "1401" },
+    { label: "Biological Sciences (26.01)", value: "2601" },
+  ];
+
+  // ---- College Earnings handler ----
+  async function handlePredictCollege() {
+    setCeError("");
+    setCeResult(null);
+    setCeLoading(true);
+    try {
+      const res = await fetch("/api/predictors/infer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "college_earnings_v1_75k_5y",
+          params: {
+            cip4,
+            degree_level: degree2,
+            state: state2,
+            ...(pubPriv ? { public_private: pubPriv } : {}),
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json();
+      setCeResult(data);
+
+      // optional: feed ModelBot context for this model
+      const ctx = {
+        bot: "ModelBot",
+        feature: "college_earnings_v1_75k_5y",
+        version: data.version || "v1_75k_5y",
+        inputs: {
+          cip4,
+          degree_level: degree2,
+          state: state2,
+          public_private: pubPriv || null,
+        },
+        result: {
+          prob: data.probability,
+          bucket: data.risk_bucket,
+          drivers: data.drivers || [],
+        },
+        warnings: data.warnings || [],
+      };
+      window.dispatchEvent(
+        new CustomEvent("dfjsx-set-bot-context", {
+          detail: { botType: "modelbot", context: ctx },
+        })
+      );
+    } catch (err) {
+      setCeError(err.message || "Prediction failed");
+    } finally {
+      setCeLoading(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl p-6">
       <div className="mb-6 flex items-center justify-between">
@@ -178,16 +269,17 @@ export default function PredictorsPro() {
             Predictor Models
           </h1>
           <p className="text-sm text-gray-500">
-            Accessibility Misinterpretation Risk — adjustable settings
+            Accessibility Misinterpretation Risk & College Earnings
           </p>
         </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Left: Inputs & Settings */}
+        {/* ====================== ROW 1: Accessibility ====================== */}
+        {/* Left: Accessibility Inputs & Settings */}
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-100 p-4 flex items-center justify-between">
-            <h2 className="text-lg font-medium">Inputs</h2>
+            <h2 className="text-lg font-medium">Accessibility — Inputs</h2>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -280,10 +372,10 @@ export default function PredictorsPro() {
           </div>
         </div>
 
-        {/* Right: Result */}
+        {/* Right: Accessibility Result */}
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-100 p-4 flex items-center justify-between">
-            <h2 className="text-lg font-medium">Result</h2>
+            <h2 className="text-lg font-medium">Accessibility — Result</h2>
             {result && (
               <BucketChip
                 prob={result.misinterpretation_probability}
@@ -388,11 +480,151 @@ export default function PredictorsPro() {
             )}
           </div>
         </div>
+
+        {/* ====================== ROW 2: College Earnings ====================== */}
+        {/* Left: College Inputs */}
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-100 p-4">
+            <h2 className="text-lg font-medium">College Earnings — Inputs</h2>
+            <p className="text-xs text-gray-500">
+              5y ≥ $75k (hierarchical logistic)
+            </p>
+          </div>
+
+          <div className="p-4 space-y-4">
+            <Select
+              label="Program (CIP-4)"
+              value={cip4}
+              onChange={setCip4}
+              options={CIP4}
+            />
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <Select
+                label="Degree level"
+                value={degree2}
+                onChange={setDegree2}
+                options={DEGREE_LEVELS}
+              />
+              <Select
+                label="State"
+                value={state2}
+                onChange={setState2}
+                options={STATES}
+              />
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium">
+                  Institution type (optional)
+                </span>
+                <select
+                  className="w-full rounded-xl border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2"
+                  value={pubPriv}
+                  onChange={(e) => setPubPriv(e.target.value)}
+                >
+                  <option value="">--</option>
+                  <option value="Public">Public</option>
+                  <option value="Private">Private</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handlePredictCollege}
+                disabled={ceLoading}
+                className="inline-flex items-center rounded-2xl bg-black px-4 py-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {ceLoading ? "Predicting..." : "Predict"}
+              </button>
+              {ceError && <div className="text-sm text-red-600">{ceError}</div>}
+            </div>
+          </div>
+        </div>
+
+        {/* Right: College Result */}
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-100 p-4 flex items-center justify-between">
+            <h2 className="text-lg font-medium">College Earnings — Result</h2>
+            {ceResult?.risk_bucket && (
+              <span className="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-xs font-medium">
+                {ceResult.risk_bucket}
+              </span>
+            )}
+          </div>
+
+          <div className="p-4 space-y-5">
+            {!ceResult && (
+              <div className="text-sm text-gray-500">
+                Fill fields and click Predict.
+              </div>
+            )}
+
+            {ceResult && (
+              <>
+                <div>
+                  <div className="text-sm text-gray-500">
+                    Probability (5y ≥ $75k)
+                  </div>
+                  <div className="mt-1 text-3xl font-semibold">
+                    {ceResult.probability != null
+                      ? `${Math.round(ceResult.probability * 100)}%`
+                      : "–"}
+                  </div>
+                  {ceResult.confidence && (
+                    <div className="text-xs text-gray-500 mt-1">
+                      Confidence: {ceResult.confidence}
+                    </div>
+                  )}
+                </div>
+
+                {!!ceResult.drivers?.length && (
+                  <div>
+                    <div className="mb-2 text-sm font-medium">Top drivers</div>
+                    <ul className="space-y-2">
+                      {ceResult.drivers.map((d, idx) => (
+                        <li
+                          key={idx}
+                          className="rounded-xl border border-gray-200 p-3 text-sm"
+                        >
+                          <span className="font-semibold">
+                            {d.direction === "+" ? "↑" : "↓"} {d.factor}
+                          </span>
+                          {d.weight != null && (
+                            <span className="ml-2 text-gray-500">
+                              ({d.weight})
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
-
+function Select({ label, value, onChange, options }) {
+  // options must be [{label, value}, ...]
+  return (
+    <label className="block">
+      <span className="mb-1 block text-sm font-medium">{label}</span>
+      <select
+        className="w-full rounded-xl border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 function SettingsPanel({
   sensitivity,
   setSensitivity,
@@ -420,6 +652,7 @@ function SettingsPanel({
             className="w-full"
           />
         </label>
+
         <label className="block text-sm">
           Audience Soften ({Number(audienceSoften).toFixed(2)})
           <input
@@ -432,6 +665,7 @@ function SettingsPanel({
             className="w-full"
           />
         </label>
+
         <label className="block text-sm">
           Low threshold
           <input
@@ -442,6 +676,7 @@ function SettingsPanel({
             step="0.01"
           />
         </label>
+
         <label className="block text-sm">
           High threshold
           <input
@@ -475,25 +710,6 @@ function SettingsPanel({
         </div>
       </div>
     </div>
-  );
-}
-
-function Select({ label, value, onChange, options }) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-sm font-medium">{label}</span>
-      <select
-        className="w-full rounded-xl border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
 

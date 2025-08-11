@@ -1,0 +1,11 @@
+{
+  "intercept": -0.35,
+  "coefficients": {
+    "degree_level=Bachelor": 0.22,
+    "degree_level=Master": 0.51,
+    "degree_level=Professional": 0.78,
+    "degree_level=Doctoral": 0.66,
+    "public_private=Public": -0.04,
+    "public_private=Private": 0.04
+  }
+}

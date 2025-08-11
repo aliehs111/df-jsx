@@ -1,0 +1,14 @@
+{
+  "degree_level_vocab": [
+    "Associate",
+    "Bachelor",
+    "Master",
+    "Professional",
+    "Doctoral"
+  ],
+  "state_vocab": ["CA", "NY", "TX", "FL", "IL", "PA", "OH", "GA", "NC", "MI"],
+  "cip4_vocab": ["1101", "5203", "1401", "2601"],
+  "bins": {
+    "program_size": [0, 50, 200, 1000, "inf"]
+  }
+}

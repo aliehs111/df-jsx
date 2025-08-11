@@ -21,7 +21,7 @@ POST,/api/databot/query-model,databot_query_model,,
 POST,/api/databot/track/{dataset_id},track_action,,
 POST,/api/databot/state/{dataset_id},save_state,,
 GET,/api/datasets/{dataset_id}/rows,get_dataset_rows,,
-POST,/api/predictors/infer,infer,,predictors
+POST,/api/predictors/infer,infer,,"predictors, predictors"
 GET,/api/health,read_root,,
 POST,/api/upload-csv,upload_csv,,
 POST,/api/datasets/save,save_dataset,,

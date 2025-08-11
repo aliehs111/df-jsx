@@ -1,0 +1,8 @@
+{
+  "model": "college_earnings",
+  "version": "v1_75k_5y",
+  "trained_at": "2025-08-11",
+  "label_metric": "median_earnings_ge_75k",
+  "horizon_years": 5,
+  "threshold_usd": 75000
+}

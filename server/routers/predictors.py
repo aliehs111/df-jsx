@@ -1,12 +1,21 @@
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
+from server.routers.college_earnings_model import predict_college_earnings, load_artifacts as ce_load
+ce_load()
+
 import re, json
 from pathlib import Path
 import math
-# Placed under server/routers/ to match structure of modelrunner.py
+
+
 router = APIRouter(prefix="/predictors", tags=["predictors"])
+
+from server.routers.college_earnings_model import predict_college_earnings, load_artifacts as ce_load
+ce_load()
+
+
 
 RULES_DIR = Path(__file__).parent / "rules"
 
@@ -16,9 +25,6 @@ class Params(BaseModel):
     medium: str = Field(..., pattern=r"^(SMS|Email)$")
     intent: Optional[str] = Field(None)
 
-class PredictRequest(BaseModel):
-    model: str = Field(..., pattern=r"^accessibility_risk$")
-    params: Params
 
 class ConfusionSource(BaseModel):
     type: str
@@ -48,10 +54,28 @@ class Overrides(BaseModel):
     sigmoid_k: Optional[float] = None                    # default 6.0
 
 
-class PredictRequest(BaseModel):
-    model: str = Field(..., pattern=r"^accessibility_risk$")
-    params: Params
-    overrides: Optional[Overrides] = None
+
+
+class GenericPredictRequest(BaseModel):
+    model: str                                  # e.g., "accessibility_risk" or "college_earnings_v1_75k_5y"
+    params: Dict[str, Any] = {}                 # free-form per model
+    overrides: Optional[Overrides] = None       # used by accessibility_risk
+
+class EarningsDriver(BaseModel):
+    factor: str
+    direction: str
+    weight: float
+
+class EarningsResponse(BaseModel):
+    status: str = "success"
+    model: str = "college_earnings"
+    version: str
+    probability: float
+    risk_bucket: str
+    drivers: List[EarningsDriver] = []
+    confidence: Optional[str] = None
+    warnings: List[str] = []
+
 
 
 DEFAULT_RULES: Dict[str, Any] = {
@@ -130,51 +154,7 @@ def rewrite_15(text: str, idiom_map: Dict[str, str]) -> str:
     words = tokenize(out)
     return " ".join(words[:15])
 
-def score_accessibility(params: Params) -> PredictResponse:
-    text = params.text.strip()
-    tokens = tokenize(text)
-    n_tokens = max(1, len(tokens))
 
-    idioms = find_terms(text, RULES["idioms"])
-    jargon = find_terms(text, RULES["jargon"])
-    ambig = find_terms(text, RULES["ambiguous_time"])
-    poly = find_terms(text, RULES["polysemy"])
-    nums = find_regex(text, RULES["numeracy_date"])
-
-    density = (
-        0.35 * (len(idioms) / n_tokens)
-        + 0.25 * (len(jargon) / n_tokens)
-        + 0.2 * (len(ambig) / n_tokens)
-        + 0.1 * (len(poly) / n_tokens)
-        + 0.1 * (len(nums) / n_tokens)
-    )
-    base = min(1.0, density * 18.0)
-    w = RULES["audience_weights"].get(params.audience, 1.0)
-    prob = max(0.0, min(1.0, base * w))
-
-    confusion: List[ConfusionSource] = []
-    if idioms:
-        confusion.append(ConfusionSource(type="Idioms/Colloquialisms", evidence=idioms, note="Replace with plain words"))
-    if jargon:
-        confusion.append(ConfusionSource(type="Jargon/Corporate", evidence=jargon, note="Use everyday language"))
-    if ambig:
-        confusion.append(ConfusionSource(type="Ambiguous Time", evidence=ambig, note="Give exact dates/times"))
-    if poly:
-        confusion.append(ConfusionSource(type="Polysemous Words", evidence=poly, note="Clarify meaning"))
-    if nums:
-        confusion.append(ConfusionSource(type="Numbers/Dates", evidence=nums, note="Spell out or format clearly"))
-
-    thresholds = RULES["density_thresholds"]
-    bucket = bucket_from_prob(prob, thresholds)
-    rewrite = rewrite_15(text, RULES.get("idiom_rewrites", {}))
-
-    return PredictResponse(
-        misinterpretation_probability=prob,
-        risk_bucket=bucket,
-        confusion_sources=confusion,
-        rewrite_15_words=rewrite,
-        warnings=[],
-    )
     
 def score_accessibility(params: Params, overrides: Optional[Overrides] = None) -> PredictResponse:
     rules = RULES  # defaults loaded at startup
@@ -256,9 +236,21 @@ def score_accessibility(params: Params, overrides: Optional[Overrides] = None) -
 
 
 
-@router.post("/infer", response_model=PredictResponse)
-async def infer(req: PredictRequest):
-    if req.model != "accessibility_risk":
-        raise HTTPException(status_code=400, detail="Unsupported model")
-    return score_accessibility(req.params, req.overrides)
+@router.post(
+    "/infer",
+    response_model=Union[PredictResponse, EarningsResponse],
+    tags=["predictors"]
+)
+async def infer(req: GenericPredictRequest):
+    if req.model == "accessibility_risk":
+        # params must match the Params schema
+        p = Params(**req.params)
+        return score_accessibility(p, req.overrides)
+
+    if req.model == "college_earnings_v1_75k_5y":
+        return predict_college_earnings(req.params or {})
+
+    raise HTTPException(status_code=400, detail="Unsupported model")
+
+
 
