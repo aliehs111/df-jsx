@@ -22,6 +22,7 @@ export default function Databot({ selectedDataset }) {
   const [forcedContext, setForcedContext] = useState(null);
   const [hasPrimed, setHasPrimed] = useState(false); // prepend context once
 
+  // Open + set context (explicit open)
   useEffect(() => {
     const h = (e) => {
       setBotType(e.detail?.botType || "databot");
@@ -35,6 +36,60 @@ export default function Databot({ selectedDataset }) {
     return () => window.removeEventListener("dfjsx-open-bot", h);
   }, []);
 
+  // Remember model context after a model run (no auto-open)
+  useEffect(() => {
+    const setCtx = (e) => {
+      setBotType(e.detail?.botType || "databot");
+      setForcedContext(e.detail?.context || null);
+    };
+    window.addEventListener("dfjsx-set-bot-context", setCtx);
+    return () => window.removeEventListener("dfjsx-set-bot-context", setCtx);
+  }, []);
+
+  // If mode or context changes, allow header to be prepended once again
+  useEffect(() => {
+    setHasPrimed(false);
+  }, [botType, forcedContext?.feature, forcedContext?.version]);
+
+  // If we navigate to a dataset detail page, default back to dataset mode
+  useEffect(() => {
+    if (/\/datasets\/\d+/.test(location.pathname)) {
+      setBotType("databot");
+      setForcedContext(null);
+      setHasPrimed(false);
+    }
+  }, [location.pathname]);
+
+  // Passive listener: remember model context after a model run (no auto-open)
+  useEffect(() => {
+    const setCtx = (e) => {
+      setBotType(e.detail?.botType || "databot");
+      setForcedContext(e.detail?.context || null);
+    };
+    window.addEventListener("dfjsx-set-bot-context", setCtx);
+    return () => window.removeEventListener("dfjsx-set-bot-context", setCtx);
+  }, []);
+
+  // If mode or context changes, allow header to be prepended once again
+  useEffect(() => {
+    setHasPrimed(false);
+  }, [botType, forcedContext?.feature, forcedContext?.version]);
+
+  // Store model context without opening (silent set)
+  useEffect(() => {
+    const setCtx = (e) => {
+      setBotType(e.detail?.botType || "databot");
+      setForcedContext(e.detail?.context || null);
+    };
+    window.addEventListener("dfjsx-set-bot-context", setCtx);
+    return () => window.removeEventListener("dfjsx-set-bot-context", setCtx);
+  }, []);
+
+  // Reset the one-time header when mode/context changes
+  useEffect(() => {
+    setHasPrimed(false);
+  }, [botType, forcedContext?.feature, forcedContext?.version]);
+
   const askDatabot = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -45,22 +100,54 @@ export default function Databot({ selectedDataset }) {
     setIsLoading(true);
 
     try {
-      // Build question, optionally prepending compact model context once
-      // Build question; always carry model_context in model mode, prepend header only once
+      // Build question; always include model_context in model mode.
+      // Prepend a readable header only on the first message.
+      // Always include model_context in model mode; prepend readable header only once
+      // Always include model_context in model mode; prepend readable header only once
       let question = userMessage.content;
-      let model_context = null;
+      const ctx = forcedContext;
+      const isModel = botType === "modelbot" && !!ctx;
+      const model_context = isModel ? ctx : null;
 
-      if (botType === "modelbot" && forcedContext) {
-        const ctx = forcedContext;
+      if (isModel && !hasPrimed) {
         const pct =
-          ctx?.result?.prob != null ? Math.round(ctx.result.prob * 100) : null;
+          typeof ctx?.result?.prob === "number"
+            ? Math.round(ctx.result.prob * 100)
+            : null;
 
-        // always send full model_context on every message
-        model_context = ctx;
-
-        // prepend a readable header only on the first message
-        if (!hasPrimed) {
-          const header = [
+        let header = "";
+        if (ctx?.feature?.startsWith?.("college_earnings")) {
+          const drivers =
+            Array.isArray(ctx?.result?.drivers) && ctx.result.drivers.length
+              ? `Drivers: ${ctx.result.drivers
+                  .map((d) => `${d.direction}${d.factor}`)
+                  .join(", ")}`
+              : null;
+          header = [
+            "Context: College Earnings — 5y ≥ $75k.",
+            `Inputs: CIP4=${ctx?.inputs?.cip4 || "?"}, Degree=${
+              ctx?.inputs?.degree_level || "?"
+            }, State=${ctx?.inputs?.state || "?"}${
+              ctx?.inputs?.public_private
+                ? `, Type=${ctx.inputs.public_private}`
+                : ""
+            }`,
+            pct != null && ctx?.result?.bucket
+              ? `Score: ${ctx.result.bucket} (${pct}%).`
+              : null,
+            drivers,
+          ]
+            .filter(Boolean)
+            .join("\n");
+        } else {
+          const confusion =
+            Array.isArray(ctx?.result?.confusion_sources) &&
+            ctx.result.confusion_sources.length
+              ? `Confusion: ${ctx.result.confusion_sources
+                  .map((s) => `${s.type}: ${s.evidence?.join(", ")}`)
+                  .join(" | ")}`
+              : null;
+          header = [
             "Context: Accessibility Misinterpretation Risk.",
             `Audience: ${ctx?.inputs?.audience || "?"}, Medium: ${
               ctx?.inputs?.medium || "?"
@@ -68,26 +155,19 @@ export default function Databot({ selectedDataset }) {
             pct != null && ctx?.result?.bucket
               ? `Score: ${ctx.result.bucket} (${pct}%).`
               : null,
-            ctx?.result?.confusion_sources?.length
-              ? `Confusion: ${ctx.result.confusion_sources
-                  .map((s) => `${s.type}: ${s.evidence?.join(", ")}`)
-                  .join(" | ")}`
-              : null,
+            confusion,
             ctx?.result?.rewrite ? `Rewrite ≤15: ${ctx.result.rewrite}` : null,
           ]
             .filter(Boolean)
             .join("\n");
-
-          question = `${header}\n\nUser: ${question}`;
-          setHasPrimed(true);
         }
+
+        question = `${header}\n\nUser: ${question}`;
+        setHasPrimed(true);
       }
 
       // --- Request: support both dataset and prediction use-cases ---
-      let url =
-        botType === "modelbot" && !datasetId
-          ? `${API_BASE}/api/databot/query-model`
-          : `${API_BASE}/api/databot/query`;
+      let url = `${API_BASE}/api/databot/query`;
 
       const basePayload = {
         question,
@@ -95,63 +175,33 @@ export default function Databot({ selectedDataset }) {
         ...(model_context ? { model_context } : {}),
       };
 
-      let res;
-      if (datasetId != null) {
-        // Attempt 1: dataset_id as query param (common FastAPI pattern)
-        const url1 = `${url}?dataset_id=${encodeURIComponent(datasetId)}`;
-        res = await fetch(url1, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(basePayload),
-        });
-        // If validation fails, retry with dataset_id in body instead
-        if (res.status === 422) {
-          res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({ ...basePayload, dataset_id: datasetId }),
-          });
-        }
-      } else {
-        // No dataset: send only the question + extras
-        res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify(basePayload),
-        });
-      }
+      const payload =
+        datasetId != null
+          ? { ...basePayload, dataset_id: datasetId }
+          : basePayload;
 
-      let text;
-      try {
-        text = await res.text();
-      } catch {
-        text = "";
-      }
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
 
       let data;
       try {
-        data = text ? JSON.parse(text) : {};
+        data = await res.json();
       } catch {
-        data = { detail: text || null };
+        data = { detail: await res.text() };
       }
 
-      const ok = res.ok && (data?.answer || data?.message);
-      const detailStr =
-        typeof data?.detail === "string"
-          ? data.detail
-          : JSON.stringify(data?.detail, null, 2);
-
-      const assistantMessage = ok
+      const assistantMessage = res.ok
         ? {
             role: "assistant",
             content: data.answer || data.message || "(no answer)",
           }
         : {
             role: "assistant",
-            content: `Error ${res.status}: ${detailStr || "(no details)"}`,
+            content: "Error: " + (data.detail || `HTTP ${res.status}`),
           };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -164,15 +214,6 @@ export default function Databot({ selectedDataset }) {
       setIsLoading(false);
     }
   };
-  // Listen for a background “set context” event (does NOT open the panel)
-  useEffect(() => {
-    const h = (e) => {
-      setBotType(e.detail?.botType || "databot");
-      setForcedContext(e.detail?.context || null);
-    };
-    window.addEventListener("dfjsx-set-bot-context", h);
-    return () => window.removeEventListener("dfjsx-set-bot-context", h);
-  }, []);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -230,7 +271,11 @@ export default function Databot({ selectedDataset }) {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about your dataset..."
+              placeholder={
+                botType === "modelbot"
+                  ? "Ask about this prediction..."
+                  : "Ask about your dataset..."
+              }
               className="flex-grow border rounded-l px-3 py-2"
               disabled={isLoading}
             />

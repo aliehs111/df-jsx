@@ -23,23 +23,29 @@ class Action(BaseModel):
     action: str
 
 actions_store = {}  # Temporary in-memory store; replace with DB later
-
+class DatabotQueryFlexible(BaseModel):
+    question: str
+    dataset_id: Optional[int] = None
+    bot_type: Optional[str] = None         # "databot" | "modelbot" (optional)
+    model_context: Optional[Dict[str, Any]] = None  # payload from predictors page
+    
+    
 @router.post("/query")
 async def databot_query(
-    request: schemas.DatabotQuery,
+    request: DatabotQueryFlexible,
     db: AsyncSession = Depends(get_async_db),
 ):
-    dataset_id = request.dataset_id
-    question = request.question
+    question = request.question or ""
 
-    # Fetch dataset
-    result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
-    dataset = result.scalar_one_or_none()
-    if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    # === Branch A: dataset mode (existing behavior) ===
+    if request.dataset_id is not None:
+        dataset_id = request.dataset_id
+        result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
+        dataset = result.scalar_one_or_none()
+        if not dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
 
-    # Build Context
-    context = f"""
+        context = f"""
 Dataset Title: {dataset.title}
 Description: {dataset.description or "No description"}
 Rows: {dataset.n_rows or "Unknown"}
@@ -48,59 +54,103 @@ Target Column: {dataset.target_column or "None"}
 Missing Values: {dataset.has_missing_values if dataset.has_missing_values is not None else "Unknown"}
 Current Stage: {dataset.current_stage or "N/A"}
 """
+        if dataset.column_metadata:
+            context += "\nColumn Metadata:\n"
+            for col, meta in dataset.column_metadata.items():
+                context += (
+                    f"- {col}: dtype={meta.get('dtype')}, "
+                    f"unique={meta.get('n_unique')}, "
+                    f"nulls={meta.get('null_count')}\n"
+                )
+        if dataset.processing_log:
+            context += "\nProcessing Log (cleaning steps applied):\n"
+            if isinstance(dataset.processing_log, str):
+                context += f"- {dataset.processing_log}\n"
+            elif isinstance(dataset.processing_log, list):
+                for step in dataset.processing_log:
+                    context += f"- {step}\n"
+        if dataset.normalization_params:
+            context += "\nNormalization Parameters:\n"
+            for col, params in dataset.normalization_params.items():
+                context += f"- {col}: {params}\n"
+        if dataset.categorical_mappings:
+            context += "\nCategorical Mappings:\n"
+            for col, mapping in dataset.categorical_mappings.items():
+                context += f"- {col}: {mapping}\n"
 
-    # Column Metadata
-    if dataset.column_metadata:
-        context += "\nColumn Metadata:\n"
-        for col, meta in dataset.column_metadata.items():
-            context += (
-                f"- {col}: dtype={meta.get('dtype')}, "
-                f"unique={meta.get('n_unique')}, "
-                f"nulls={meta.get('null_count')}\n"
-            )
+        system_prompt = (
+            "You are a helpful tutor for data science. Use the provided dataset "
+            "metadata — including cleaning history and preprocessing details — to "
+            "answer questions clearly and concisely."
+        )
+        user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
 
-    # Processing Log
-    if dataset.processing_log:
-        context += "\nProcessing Log (cleaning steps applied):\n"
-        if isinstance(dataset.processing_log, str):
-            context += f"- {dataset.processing_log}\n"
-        elif isinstance(dataset.processing_log, list):
-            for step in dataset.processing_log:
-                context += f"- {step}\n"
+    # === Branch B: model mode (predictors page) ===
+    elif request.model_context:
+        ctx = request.model_context or {}
+        feat = (ctx.get("feature") or "").lower()
+        inputs = ctx.get("inputs") or {}
+        result = ctx.get("result") or {}
 
-    # Normalization Params
-    if dataset.normalization_params:
-        context += "\nNormalization Parameters:\n"
-        for col, params in dataset.normalization_params.items():
-            context += f"- {col}: {params}\n"
+        # Compact human-readable context
+        lines = []
+        if feat.startswith("college_earnings"):
+            pct = result.get("prob")
+            pct = f"{round(pct*100)}%" if isinstance(pct, (int, float)) else "—"
+            lines += [
+                "Context: College Earnings — 5y ≥ $75k.",
+                f"Inputs: CIP4={inputs.get('cip4') or '?'}, Degree={inputs.get('degree_level') or '?'}, "
+                f"State={inputs.get('state') or '?'}"
+                + (f", Type={inputs.get('public_private')}" if inputs.get('public_private') else ""),
+                f"Score: {result.get('bucket') or '—'} ({pct}).",
+            ]
+            drivers = result.get("drivers") or []
+            if drivers:
+                lines.append("Drivers: " + ", ".join(
+                    (f"{d.get('direction','')}{d.get('factor','')}" for d in drivers)
+                ))
+        else:
+            pct = result.get("prob")
+            pct = f"{round(pct*100)}%" if isinstance(pct, (int, float)) else "—"
+            lines += [
+                "Context: Accessibility Misinterpretation Risk.",
+                f"Audience: {inputs.get('audience') or '?'}, Medium: {inputs.get('medium') or '?'}, "
+                f"Intent: {inputs.get('intent') if inputs.get('intent') is not None else '—'}",
+                f"Score: {result.get('bucket') or '—'} ({pct}).",
+            ]
+            cs = result.get("confusion_sources") or []
+            if cs:
+                lines.append("Confusion: " + " | ".join(
+                    f"{c.get('type')}: {', '.join(c.get('evidence') or [])}" for c in cs
+                ))
+            if result.get("rewrite"):
+                lines.append(f"Rewrite ≤15: {result['rewrite']}")
 
-    # Categorical Mappings
-    if dataset.categorical_mappings:
-        context += "\nCategorical Mappings:\n"
-        for col, mapping in dataset.categorical_mappings.items():
-            context += f"- {col}: {mapping}\n"
+        context = "\n".join([ln for ln in lines if ln])
+        system_prompt = (
+            "You are ModelBot. Explain the model's prediction clearly, identify the most "
+            "influential factors, and suggest concrete, actionable improvements. Keep answers concise."
+        )
+        user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
 
-    # OpenAI Query
+    else:
+        # Neither dataset_id nor model_context provided
+        raise HTTPException(status_code=422, detail="Provide dataset_id or model_context")
+
+    # ---- OpenAI call (shared) ----
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a helpful tutor for data science. "
-                        "Use the provided dataset metadata — including cleaning history "
-                        "and preprocessing details — to answer questions clearly and concisely."
-                    ),
-                },
-                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"},
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
         )
         answer = response.choices[0].message.content
+        return {"answer": answer}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
 
-    return {"answer": answer}
 
 @router.get("/suggestions/{dataset_id}")
 async def get_suggestions(dataset_id: int, page: str = Query(None), db: AsyncSession = Depends(get_async_db)):
