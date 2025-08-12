@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Union
 from server.routers.college_earnings_model import predict_college_earnings, load_artifacts as ce_load
@@ -8,14 +8,47 @@ ce_load()
 import re, json
 from pathlib import Path
 import math
-
+from fastapi.responses import JSONResponse
+import logging
 
 router = APIRouter(prefix="/predictors", tags=["predictors"])
-
-from server.routers.college_earnings_model import predict_college_earnings, load_artifacts as ce_load
-ce_load()
+log = logging.getLogger("predictors")
 
 
+ENC_DIR = Path(__file__).resolve().parent / "models" / "college_earnings" / "v1_75k_5y"
+ENC_PATH = ENC_DIR / "encoders.json"
+CIP_LABELS_PATH = ENC_DIR / "cip4_labels.json"
+
+@router.get("/college_earnings/v1_75k_5y/encoders")
+def get_college_earnings_encoders():
+    try:
+        enc = json.loads(ENC_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise HTTPException(404, "encoders.json not found")
+
+    out = {
+        "status": "success",
+        "degree_levels": enc.get("degree_levels", []),
+        "states": enc.get("states", []),
+        "cip4": enc.get("cip4", []),
+        "public_private": enc.get("public_private", []),
+    }
+
+    # Attach labels/options if present
+    if CIP_LABELS_PATH.exists():
+        try:
+            labels = json.loads(CIP_LABELS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            labels = {}
+        out["cip4_labels"] = labels  # dict { "1101": "Computer Science", ... }
+        # Nice options array for the UI
+        codes = out["cip4"]
+        out["cip4_options"] = [
+            {"code": code, "label": f'{labels.get(code, code)} ({code})'}
+            for code in codes
+        ]
+
+    return out
 
 RULES_DIR = Path(__file__).parent / "rules"
 
@@ -236,21 +269,50 @@ def score_accessibility(params: Params, overrides: Optional[Overrides] = None) -
 
 
 
-@router.post(
-    "/infer",
-    response_model=Union[PredictResponse, EarningsResponse],
-    tags=["predictors"]
-)
-async def infer(req: GenericPredictRequest):
-    if req.model == "accessibility_risk":
-        # params must match the Params schema
-        p = Params(**req.params)
-        return score_accessibility(p, req.overrides)
+@router.post("/infer")
+async def infer(req: Request):
+    body = await req.json()
+    model = (body or {}).get("model")
+    params = (body or {}).get("params") or {}
+    overrides_payload = (body or {}).get("overrides")
 
-    if req.model == "college_earnings_v1_75k_5y":
-        return predict_college_earnings(req.params or {})
+    log.info("infer model=%s params=%s", model, {k: params.get(k) for k in ["degree_level","state","cip4","public_private","text","audience","medium","intent"]})
 
-    raise HTTPException(status_code=400, detail="Unsupported model")
+    try:
+        if model == "college_earnings_v1_75k_5y":
+            out = predict_college_earnings(params) or {}
+            out.setdefault("status", "success")
+            out.setdefault("model", "college_earnings")
+            out.setdefault("version", "v1_75k_5y")
+            out.setdefault("warnings", [])
+            out.setdefault("drivers", [])
+            return JSONResponse(out)
 
+        elif model == "accessibility_risk":
+            # validate params and overrides via Pydantic
+            try:
+                p = Params(**params)
+            except Exception as e:
+                raise HTTPException(400, f"Bad params for accessibility_risk: {e}")
 
+            ov = None
+            if overrides_payload is not None:
+                try:
+                    ov = Overrides(**overrides_payload)
+                except Exception as e:
+                    raise HTTPException(400, f"Bad overrides: {e}")
 
+            resp = score_accessibility(p, ov)  # returns PredictResponse
+            # pydantic v1 vs v2 compatibility
+            data = getattr(resp, "model_dump", None)
+            data = data() if data else resp.dict()
+            return JSONResponse(data)
+
+        else:
+            raise HTTPException(400, f"Unknown model '{model}'")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("infer failed")
+        return JSONResponse({"status":"error","detail":str(e)}, status_code=500)

@@ -1,8 +1,23 @@
 {
   "model": "college_earnings",
   "version": "v1_75k_5y",
-  "trained_at": "2025-08-11",
-  "label_metric": "median_earnings_ge_75k",
-  "horizon_years": 5,
-  "threshold_usd": 75000
+  "target": "Pr(median earnings \u2265 $75,000 at ~5 years; FoS 5-year median used if available)",
+  "trained_at": "2025-08-11T23:49:37Z",
+  "notes": [
+    "Fixed effects: degree_level, public_private, size_bin.",
+    "Group effects: state, cip4 via L2 + empirical shrink.",
+    "Calibration: Platt on validation grouped by UNITID split."
+  ],
+  "counts": {
+    "train": 24287,
+    "valid": 6310,
+    "pos_rate_train": 0.24844567052332522,
+    "pos_rate_valid": 0.25007923930269416
+  },
+  "metrics_valid": {
+    "auc_fixed": 0.7106192286800652,
+    "auc_fx_grp": 0.8925682085780068,
+    "auc_cal": 0.8925682085780068,
+    "brier_cal": 0.1126042082698631
+  }
 }

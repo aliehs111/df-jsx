@@ -1,1 +1,6 @@
-{ "a": 1.02, "b": -0.03 }
+{
+  "type": "platt",
+  "coef": 1.1332872484232708,
+  "intercept": 0.14602652634288227,
+  "note": "Input is raw model probability logit."
+}

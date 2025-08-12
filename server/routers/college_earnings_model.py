@@ -25,14 +25,15 @@
 # Minimal fixed_effects.json example:
 # { "intercept": -0.35,
 #   "coefficients": {
-#     "degree_level=Bachelor": 0.22,
-#     "degree_level=Master": 0.51,
-#     "degree_level=Professional": 0.78,
-#     "degree_level=Doctoral": 0.66,
-#     "public_private=Public": -0.04,
-#     "public_private=Private": 0.04
+#     "degree_level_Bachelor": 0.22,
+#     "degree_level_Master": 0.51,
+#     "degree_level_Professional": 0.78,
+#     "degree_level_Doctoral": 0.66,
+#     "public_private_Public": -0.04,
+#     "public_private_Private": 0.04
 #   }
 # }
+
 #
 # Minimal random_cip.json example: { "1101": 0.20, "5203": -0.08, ... }
 # Minimal random_state.json example: { "CA": 0.03, "NY": 0.05, ... }
@@ -45,6 +46,36 @@ from typing import Any, Dict, List, Optional, Tuple
 import json
 import math
 from pathlib import Path
+import re
+
+DEGREE_ALIASES = {
+    "associate": "Associate", "associates": "Associate",
+    "bachelor": "Bachelor", "bachelors": "Bachelor",
+    "master": "Master", "masters": "Master",
+    "professional": "Professional",
+    "doctoral": "Doctoral", "doctorate": "Doctoral",
+}
+PRIVATE_ALIASES = {
+    "public": "Public",
+    "private": "Private",
+    "private nonprofit": "Private", "private non-profit": "Private",
+    "private for-profit": "Private",
+}
+def norm_degree(s: str) -> str:
+    if not s: return ""
+    k = re.sub(r"[^a-z]", "", s.lower())
+    return DEGREE_ALIASES.get(k, s.strip())
+
+def norm_public_private(s: str) -> str:
+    if not s: return ""
+    k = re.sub(r"\s+", " ", s.strip().lower())
+    return PRIVATE_ALIASES.get(k, s.strip())
+
+def norm_state(s: str) -> str:
+    return (s or "").strip().upper()[:2]
+
+def norm_cip4(s: str) -> str:
+    return re.sub(r"\D", "", (s or ""))[:4]
 
 # -----------------------------
 # Globals (loaded at import)
@@ -126,31 +157,33 @@ except Exception:
 # -----------------------------
 
 def _encode_fixed(params: CollegeEarningsParams) -> Tuple[Dict[str, float], List[str]]:
-    """Return a sparse map of feature_name -> value (usually 0/1 for one-hot) and warnings."""
-    enc = _loaded["encoders"]
+    enc = _loaded["encoders"] or {}
     coefs = _loaded["fixed"]["coefficients"] if _loaded["fixed"] else {}
+    fixed_cols = set((enc.get("fixed_feature_columns") or coefs.keys()))
     feats: Dict[str, float] = {}
     warnings: List[str] = []
 
-    # Degree one-hot
-    deg = params.degree_level
-    key = f"degree_level={deg}"
-    if key in coefs:
-        feats[key] = 1.0
+    # degree_level -> degree_level_<Label>
+    if params.degree_level:
+        key = f"degree_level_{params.degree_level}"
+        if key in fixed_cols:
+            feats[key] = 1.0
+        else:
+            warnings.append(f"Unknown degree_level '{params.degree_level}' — using baseline.")
     else:
-        warnings.append(f"Unknown degree_level '{deg}' — using baseline.")
+        warnings.append("Missing degree_level — using baseline.")
 
-    # Optional public/private
+    # public_private -> public_private_<Label>
     if params.public_private:
-        pp = params.public_private
-        key_pp = f"public_private={pp}"
-        if key_pp in coefs:
+        key_pp = f"public_private_{params.public_private}"
+        if key_pp in fixed_cols:
             feats[key_pp] = 1.0
         else:
-            warnings.append(f"Unknown public_private '{pp}' — ignoring.")
+            warnings.append(f"Unknown public_private '{params.public_private}' — ignoring.")
 
-    # You can add more fixed effects here later (e.g., size bins) once artifacts include them.
+    # (If you later add size_bin, build key size_bin_<bin> here.)
     return feats, warnings
+
 
 
 def _random_effects(cip4: str, state: str) -> Tuple[float, float, List[str]]:
@@ -167,14 +200,16 @@ def _random_effects(cip4: str, state: str) -> Tuple[float, float, List[str]]:
 
 
 def _apply_calibration(p_raw: float) -> float:
-    calib = _loaded.get("calib") or {"a": 1.0, "b": 0.0}
-    a, b = float(calib.get("a", 1.0)), float(calib.get("b", 0.0))
+    calib = _loaded.get("calib") or {}
+    # Support both {a,b} and {coef,intercept} shapes
+    a = float(calib.get("a", calib.get("coef", 1.0)))
+    b = float(calib.get("b", calib.get("intercept", 0.0)))
     # Platt scaling on log-odds
     eps = 1e-8
-    odds = max(eps, min(1.0 - eps, p_raw)) / max(eps, 1.0 - max(eps, min(1.0 - eps, p_raw)))
-    logit = math.log(odds)
-    p = _sigmoid(a * logit + b)
-    return p
+    pr = max(eps, min(1.0 - eps, p_raw))
+    logit = math.log(pr / (1.0 - pr))
+    return _sigmoid(a * logit + b)
+
 
 
 def _bucket(p: float) -> str:
@@ -191,18 +226,19 @@ def predict_college_earnings(params: Dict[str, Any]) -> Dict[str, Any]:
     params expects keys: cip4, degree_level, state, optional public_private
     """
     # Ensure artifacts are loaded
-    if not _loaded["fixed"] or not _loaded["encoders"]:
+    if not _loaded.get("fixed") or not _loaded.get("encoders"):
         load_artifacts()
 
+    # normalize inputs
     p = CollegeEarningsParams(
-        cip4=str(params.get("cip4", "")).strip(),
-        degree_level=str(params.get("degree_level", "")).strip(),
-        state=str(params.get("state", "")).strip(),
-        public_private=(str(params.get("public_private")).strip() if params.get("public_private") else None),
+        cip4=norm_cip4(params.get("cip4", "")),
+        degree_level=norm_degree(params.get("degree_level", "")),
+        state=norm_state(params.get("state", "")),
+        public_private=(norm_public_private(params.get("public_private")) if params.get("public_private") else None),
     )
 
-    intercept = float(_loaded["fixed"].get("intercept", 0.0))
-    coefs = _loaded["fixed"].get("coefficients", {})
+    intercept = float((_loaded["fixed"] or {}).get("intercept", 0.0))
+    coefs = (_loaded["fixed"] or {}).get("coefficients", {}) or {}
 
     # Build fixed features
     x, warn1 = _encode_fixed(p)
@@ -222,23 +258,30 @@ def predict_college_earnings(params: Dict[str, Any]) -> Dict[str, Any]:
         lp += w
         contributions.append((fname, w))
 
-    # Raw probability
+    # Raw & calibrated probability
     p_raw = _sigmoid(lp)
-    # Calibrated probability
     p_cal = _apply_calibration(p_raw)
     bucket = _bucket(p_cal)
 
-    # Drivers: top 3 by absolute contribution (exclude intercept in display)
+    # Drivers: top 3 (exclude intercept)
     disp = [(n, c) for (n, c) in contributions if n != "intercept"]
     disp.sort(key=lambda t: abs(t[1]), reverse=True)
     top = disp[:3]
 
+    def pretty_factor(name: str) -> str:
+        if name.startswith("degree_level_"):
+            return "degree_level=" + name.split("_", 1)[1]
+        if name.startswith("public_private_"):
+            return "public_private=" + name.split("_", 1)[1]
+        if name.startswith("size_bin_"):
+            return "size_bin=" + name.split("_", 1)[1]
+        # keep RE labels as-is
+        return name
+
     drivers = [
-        {
-            "factor": name,
-            "direction": "+" if val >= 0 else "-",
-            "weight": round(float(val), 4),
-        }
+        {"factor": pretty_factor(name),
+         "direction": "+" if val >= 0 else "-",
+         "weight": round(float(val), 4)}
         for name, val in top
     ]
 
@@ -249,7 +292,7 @@ def predict_college_earnings(params: Dict[str, Any]) -> Dict[str, Any]:
         "status": "success",
         "model": meta.get("model", "college_earnings"),
         "version": meta.get("version", "v1_75k_5y"),
-        "probability": p_cal,
+        "probability": float(p_cal),
         "risk_bucket": bucket,
         "drivers": drivers,
         "confidence": _confidence_from_meta(p.cip4, p.state),
@@ -270,3 +313,5 @@ def _confidence_from_meta(cip4: str, state: str) -> str:
     if has_cip or has_state:
         return "Medium"
     return "Low"
+
+

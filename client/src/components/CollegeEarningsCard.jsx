@@ -1,34 +1,76 @@
-import { useState } from "react";
-
-const DEGREE_LEVELS = [
-  "Associate",
-  "Bachelor",
-  "Master",
-  "Professional",
-  "Doctoral",
-];
-const STATES = ["CA", "NY", "TX", "FL", "IL", "PA", "OH", "GA", "NC", "MI"]; // extend later
-const CIP4 = [
-  { code: "1101", label: "Computer Science (11.01)" },
-  { code: "5203", label: "Accounting (52.03)" },
-  { code: "1401", label: "Engineering (14.01)" },
-  { code: "2601", label: "Biological Sciences (26.01)" },
-]; // swap for your real list later
+// client/src/wherever/CollegeEarningsCard.jsx
+import React, { useEffect, useState } from "react";
 
 export default function CollegeEarningsCard() {
+  // --- local state (hooks must be inside the component) ---
   const [cip4, setCip4] = useState("1101");
   const [degree, setDegree] = useState("Bachelor");
   const [state, setState] = useState("CA");
   const [pubPriv, setPubPriv] = useState("");
 
+  const [degreeLevels, setDegreeLevels] = useState([]);
+  const [statesList, setStatesList] = useState([]);
+  const [cip4List, setCip4List] = useState([]);
+  const [pubPrivList, setPubPrivList] = useState([]);
+
   const [loading, setLoading] = useState(false);
+  const [optsLoading, setOptsLoading] = useState(true);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
+  const [cip4Options, setCip4Options] = useState([]);
 
   const API_BASE =
     import.meta.env.MODE === "development" ? "http://127.0.0.1:8000" : "";
 
   const canPredict = cip4 && degree && state;
+
+  // --- fetch encoders once on mount ---
+  useEffect(() => {
+    async function loadEncoders() {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/predictors/college_earnings/v1_75k_5y/encoders`,
+          { credentials: "include" }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const enc = await res.json();
+
+        // keep existing lists (useful for counts badge, etc.)
+        setDegreeLevels(enc.degree_levels || []);
+        setStatesList(enc.states || []);
+        setCip4List(enc.cip4 || []);
+        setPubPrivList(enc.public_private || []);
+
+        // NEW: build labeled CIP4 options
+        const opts =
+          enc.cip4_options ||
+          (enc.cip4 || []).map((code) => ({ code, label: code }));
+        // optional: sort alphabetically by label
+        opts.sort((a, b) => a.label.localeCompare(b.label));
+        setCip4Options(opts);
+
+        // set defaults if available
+        if ((enc.degree_levels || []).length) setDegree(enc.degree_levels[0]);
+        if ((enc.states || []).length)
+          setState(enc.states.includes("CA") ? "CA" : enc.states[0]);
+
+        // default CIP selection prefers 1101 if present, else first option
+        if (opts.length) {
+          const def = opts.some((o) => o.code === "1101")
+            ? "1101"
+            : opts[0].code;
+          setCip4(def);
+        }
+      } catch (e) {
+        console.error("Failed to load encoders", e);
+        setError("Couldn’t load dropdown options.");
+      } finally {
+        setOptsLoading(false);
+      }
+    }
+    loadEncoders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handlePredict = async () => {
     if (!canPredict || loading) return;
@@ -39,6 +81,7 @@ export default function CollegeEarningsCard() {
       const res = await fetch(`${API_BASE}/api/predictors/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           model: "college_earnings_v1_75k_5y",
           params: {
@@ -49,12 +92,8 @@ export default function CollegeEarningsCard() {
           },
         }),
       });
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(t || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
-      setResult(data);
+      if (!res.ok) throw new Error(await res.text());
+      setResult(await res.json());
     } catch (e) {
       setError(e.message || "Request failed");
     } finally {
@@ -62,7 +101,6 @@ export default function CollegeEarningsCard() {
     }
   };
 
-  // Optional: open your global ModelBot with this prediction’s context
   const openModelBot = () => {
     if (!result) return;
     const ctx = {
@@ -89,21 +127,30 @@ export default function CollegeEarningsCard() {
       })
     );
   };
+  console.log("CE_CARD_LIVE_MARK", new Date().toISOString());
 
+  // --- UI ---
   return (
     <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
       <div className="border-b border-gray-100 p-4 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-medium">College Earnings — 5y ≥ $75k</h2>
+
           <p className="text-xs text-gray-500">
             Hierarchical logistic (CIP + State RE)
           </p>
         </div>
+
         {result?.risk_bucket && (
           <span className="inline-flex items-center rounded-full border border-gray-200 px-2.5 py-1 text-xs font-medium">
             {result.risk_bucket}
           </span>
         )}
+      </div>
+
+      <div className="text-[10px] text-gray-400 px-4 pt-2">
+        encoders: {degreeLevels.length} deg • {statesList.length} states •{" "}
+        {pubPrivList.length} types • {cip4List.length} CIP4
       </div>
 
       <div className="p-4 space-y-4">
@@ -117,42 +164,48 @@ export default function CollegeEarningsCard() {
               className="w-full rounded-xl border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2"
               value={cip4}
               onChange={(e) => setCip4(e.target.value)}
+              disabled={optsLoading}
             >
-              {CIP4.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.label}
+              {cip4Options.map((opt) => (
+                <option key={opt.code} value={opt.code}>
+                  {opt.label}
                 </option>
               ))}
             </select>
           </label>
+
           <label className="block">
             <span className="mb-1 block text-sm font-medium">Degree level</span>
             <select
               className="w-full rounded-xl border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2"
               value={degree}
               onChange={(e) => setDegree(e.target.value)}
+              disabled={optsLoading}
             >
-              {DEGREE_LEVELS.map((d) => (
+              {degreeLevels.map((d) => (
                 <option key={d} value={d}>
                   {d}
                 </option>
               ))}
             </select>
           </label>
+
           <label className="block">
             <span className="mb-1 block text-sm font-medium">State</span>
             <select
               className="w-full rounded-xl border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2"
               value={state}
               onChange={(e) => setState(e.target.value)}
+              disabled={optsLoading}
             >
-              {STATES.map((s) => (
+              {statesList.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
               ))}
             </select>
           </label>
+
           <label className="block">
             <span className="mb-1 block text-sm font-medium">
               Institution type (optional)
@@ -161,10 +214,14 @@ export default function CollegeEarningsCard() {
               className="w-full rounded-xl border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2"
               value={pubPriv}
               onChange={(e) => setPubPriv(e.target.value)}
+              disabled={optsLoading}
             >
               <option value="">--</option>
-              <option value="Public">Public</option>
-              <option value="Private">Private</option>
+              {pubPrivList.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -173,7 +230,7 @@ export default function CollegeEarningsCard() {
         <div className="flex items-center gap-3">
           <button
             onClick={handlePredict}
-            disabled={!canPredict || loading}
+            disabled={!canPredict || loading || optsLoading}
             className="inline-flex items-center rounded-2xl bg-black px-4 py-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {loading ? "Predicting..." : "Predict"}
@@ -230,12 +287,10 @@ export default function CollegeEarningsCard() {
             )}
 
             <div className="pt-1">
-              {/* When you upload the PDF, swap href to the real S3 URL */}
               <a
                 href="#"
                 onClick={(e) => e.preventDefault()}
                 className="text-sm text-blue-600 hover:underline"
-                title="Training report (v1) — upload PDF and set the link"
               >
                 View training report (v1)
               </a>
