@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useLocation } from "react-router-dom";
-import logo from "../assets/newlogo500.png"; // ✅ import your logo
+import logo from "../assets/newlogo500.png";
+import appInfo from "../data/databot_app_info.md?raw";
 
 export default function Databot({ selectedDataset }) {
   const [messages, setMessages] = useState([]);
@@ -9,7 +10,6 @@ export default function Databot({ selectedDataset }) {
   const [isLoading, setIsLoading] = useState(false);
   const chatEndRef = useRef(null);
 
-  // Detect datasetId from the URL (e.g., /datasets/22)
   const location = useLocation();
   const match = location.pathname.match(/\/datasets\/(\d+)/);
   const datasetId = match ? parseInt(match[1]) : selectedDataset || null;
@@ -17,26 +17,28 @@ export default function Databot({ selectedDataset }) {
   const API_BASE =
     import.meta.env.MODE === "development" ? "http://127.0.0.1:8000" : "";
 
-  // NEW: allow opening as "ModelBot" with prediction context
-  const [botType, setBotType] = useState("databot"); // "databot" | "modelbot"
+  const [botType, setBotType] = useState("databot");
   const [forcedContext, setForcedContext] = useState(null);
-  const [hasPrimed, setHasPrimed] = useState(false); // prepend context once
+  const [hasPrimed, setHasPrimed] = useState(false);
 
-  // Open + set context (explicit open)
   useEffect(() => {
     const h = (e) => {
+      setForcedContext(null);
       setBotType(e.detail?.botType || "databot");
       setForcedContext(e.detail?.context || null);
       setIsOpen(true);
       if (e.detail?.botType === "modelbot") {
-        setInput("Explain these results and suggest a clearer rewrite.");
+        setInput(
+          e.detail?.context?.feature?.startsWith?.("college_earnings")
+            ? "Explain the college earnings results and suggest improvements."
+            : "Explain the accessibility results and suggest a rewrite."
+        );
       }
     };
     window.addEventListener("dfjsx-open-bot", h);
     return () => window.removeEventListener("dfjsx-open-bot", h);
   }, []);
 
-  // Remember model context after a model run (no auto-open)
   useEffect(() => {
     const setCtx = (e) => {
       setBotType(e.detail?.botType || "databot");
@@ -46,12 +48,10 @@ export default function Databot({ selectedDataset }) {
     return () => window.removeEventListener("dfjsx-set-bot-context", setCtx);
   }, []);
 
-  // If mode or context changes, allow header to be prepended once again
   useEffect(() => {
     setHasPrimed(false);
   }, [botType, forcedContext?.feature, forcedContext?.version]);
 
-  // If we navigate to a dataset detail page, default back to dataset mode
   useEffect(() => {
     if (/\/datasets\/\d+/.test(location.pathname)) {
       setBotType("databot");
@@ -60,35 +60,22 @@ export default function Databot({ selectedDataset }) {
     }
   }, [location.pathname]);
 
-  // Passive listener: remember model context after a model run (no auto-open)
   useEffect(() => {
-    const setCtx = (e) => {
-      setBotType(e.detail?.botType || "databot");
-      setForcedContext(e.detail?.context || null);
-    };
-    window.addEventListener("dfjsx-set-bot-context", setCtx);
-    return () => window.removeEventListener("dfjsx-set-bot-context", setCtx);
-  }, []);
-
-  // If mode or context changes, allow header to be prepended once again
-  useEffect(() => {
-    setHasPrimed(false);
-  }, [botType, forcedContext?.feature, forcedContext?.version]);
-
-  // Store model context without opening (silent set)
-  useEffect(() => {
-    const setCtx = (e) => {
-      setBotType(e.detail?.botType || "databot");
-      setForcedContext(e.detail?.context || null);
-    };
-    window.addEventListener("dfjsx-set-bot-context", setCtx);
-    return () => window.removeEventListener("dfjsx-set-bot-context", setCtx);
-  }, []);
-
-  // Reset the one-time header when mode/context changes
-  useEffect(() => {
-    setHasPrimed(false);
-  }, [botType, forcedContext?.feature, forcedContext?.version]);
+    if (location.pathname === "/dashboard" || location.pathname === "/models") {
+      setBotType("databot");
+      setForcedContext({ app_info_text: appInfo });
+      setHasPrimed(false);
+      setMessages([
+        {
+          role: "assistant",
+          content:
+            "Welcome to df.jsx! I’m Databot, here to guide you. Ask about the app’s features, workflow, or tips, or explore dataset details and predictor models!",
+        },
+      ]);
+    } else {
+      setMessages([]);
+    }
+  }, [location.pathname]);
 
   const askDatabot = async (e) => {
     e.preventDefault();
@@ -100,21 +87,24 @@ export default function Databot({ selectedDataset }) {
     setIsLoading(true);
 
     try {
-      // Build question; always include model_context in model mode.
-      // Prepend a readable header only on the first message.
-      // Always include model_context in model mode; prepend readable header only once
-      // Always include model_context in model mode; prepend readable header only once
+      const isAppInfoRoute =
+        location.pathname === "/dashboard" || location.pathname === "/models";
+      const isPredictors = location.pathname === "/predictors";
+      const effectiveBotType = isAppInfoRoute ? "databot" : botType;
+      const ctx = isAppInfoRoute ? { app_info_text: appInfo } : forcedContext;
+
       let question = userMessage.content;
-      const ctx = forcedContext;
-      const isModel = botType === "modelbot" && !!ctx;
-      const model_context = isModel ? ctx : null;
+      let url = `${API_BASE}/api/databot/query`;
+      let payload;
 
-      if (isModel && !hasPrimed) {
-        const pct =
-          typeof ctx?.result?.prob === "number"
-            ? Math.round(ctx.result.prob * 100)
-            : null;
-
+      if (isAppInfoRoute && ctx?.app_info_text) {
+        url = `${API_BASE}/api/databot/query_welcome`;
+        question = `App Info:\n${ctx.app_info_text}\n\nQuestion: ${question}`;
+        payload = {
+          question,
+          app_info: ctx.app_info_text,
+        };
+      } else if (isPredictors && botType === "modelbot" && ctx) {
         let header = "";
         if (ctx?.feature?.startsWith?.("college_earnings")) {
           const drivers =
@@ -122,6 +112,10 @@ export default function Databot({ selectedDataset }) {
               ? `Drivers: ${ctx.result.drivers
                   .map((d) => `${d.direction}${d.factor}`)
                   .join(", ")}`
+              : null;
+          const pct =
+            typeof ctx?.result?.prob === "number"
+              ? Math.round(ctx.result.prob * 100)
               : null;
           header = [
             "Context: College Earnings — 5y ≥ $75k.",
@@ -139,13 +133,17 @@ export default function Databot({ selectedDataset }) {
           ]
             .filter(Boolean)
             .join("\n");
-        } else {
+        } else if (ctx?.feature === "accessibility_risk") {
           const confusion =
             Array.isArray(ctx?.result?.confusion_sources) &&
             ctx.result.confusion_sources.length
               ? `Confusion: ${ctx.result.confusion_sources
                   .map((s) => `${s.type}: ${s.evidence?.join(", ")}`)
                   .join(" | ")}`
+              : null;
+          const pct =
+            typeof ctx?.result?.prob === "number"
+              ? Math.round(ctx.result.prob * 100)
               : null;
           header = [
             "Context: Accessibility Misinterpretation Risk.",
@@ -160,25 +158,22 @@ export default function Databot({ selectedDataset }) {
           ]
             .filter(Boolean)
             .join("\n");
+        } else {
+          header = "Context: Unknown model.";
         }
-
         question = `${header}\n\nUser: ${question}`;
-        setHasPrimed(true);
+        payload = {
+          question,
+          bot_type: effectiveBotType,
+          model_context: ctx,
+        };
+      } else {
+        payload = {
+          question,
+          bot_type: effectiveBotType,
+          ...(datasetId != null ? { dataset_id: datasetId } : {}),
+        };
       }
-
-      // --- Request: support both dataset and prediction use-cases ---
-      let url = `${API_BASE}/api/databot/query`;
-
-      const basePayload = {
-        question,
-        bot_type: botType,
-        ...(model_context ? { model_context } : {}),
-      };
-
-      const payload =
-        datasetId != null
-          ? { ...basePayload, dataset_id: datasetId }
-          : basePayload;
 
       const res = await fetch(url, {
         method: "POST",
@@ -201,21 +196,31 @@ export default function Databot({ selectedDataset }) {
           }
         : {
             role: "assistant",
-            content: "Error: " + (data.detail || `HTTP ${res.status}`),
+            content: isAppInfoRoute
+              ? "I’m here to help with df.jsx. Ask about features or workflow!"
+              : botType === "modelbot"
+              ? "I can’t process that right now. Ask about the model results!"
+              : "Error: Couldn’t fetch a response. Try again or check your dataset!",
           };
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: "Error: " + err.message },
+        {
+          role: "assistant",
+          content: isAppInfoRoute
+            ? "I’m here to help with df.jsx. Ask about features or workflow!"
+            : botType === "modelbot"
+            ? "I can’t process that right now. Ask about the model results!"
+            : "Error: Couldn’t fetch a response. Try again or check your dataset!",
+        },
       ]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -232,8 +237,6 @@ export default function Databot({ selectedDataset }) {
       {isOpen && (
         <div className="mt-2 bg-white border rounded-lg shadow-lg flex flex-col h-[500px]">
           <h2 className="text-lg font-bold p-3 border-b">Databot Tutor</h2>
-
-          {/* Conversation window */}
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
             {messages.map((msg, idx) => (
               <div
@@ -265,14 +268,15 @@ export default function Databot({ selectedDataset }) {
             )}
             <div ref={chatEndRef} />
           </div>
-
-          {/* Input form */}
           <form onSubmit={askDatabot} className="p-3 border-t flex">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={
-                botType === "modelbot"
+                location.pathname === "/dashboard" ||
+                location.pathname === "/models"
+                  ? "Ask about this app…"
+                  : botType === "modelbot"
                   ? "Ask about this prediction..."
                   : "Ask about your dataset..."
               }

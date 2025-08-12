@@ -15,6 +15,7 @@ POST,/api/datasets/{dataset_id}/clean-preview,clean_preview,,datasets
 POST,/api/insights/,generate_insights,,"insights, insights"
 GET,/api/models/available,get_available_models,,"models, models"
 POST,/api/models/run,run_model,,"models, models"
+POST,/api/databot/query_welcome,databot_query_welcome,,
 POST,/api/databot/query,databot_query,,
 GET,/api/databot/suggestions/{dataset_id},get_suggestions,,
 POST,/api/databot/query-model,databot_query_model,,

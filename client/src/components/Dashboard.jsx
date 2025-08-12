@@ -1,6 +1,4 @@
 // src/pages/Dashboard.jsx
-import Navbar from "../components/Navbar";
-import QuickStart from "../components/QuickStart";
 import KPICards from "../components/KPICards";
 import RecentDatasets from "../components/RecentDatasets";
 import QuickActions from "../components/QuickActions";
@@ -11,36 +9,54 @@ const logo = newlogo500;
 export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* <Navbar /> */}
-
-      <header className="bg-cyan-200 py-8 flex items-center justify-between px-20 pb-20">
+      {/* Header */}
+      <header className="bg-cyan-200 py-10 flex items-center justify-between px-8 sm:px-20 border-b border-cyan-300/40">
         <div>
-          <h1 className="text-6xl font-bold text-white ">Dashboard</h1>
-          {/* <p className="text-blue-800 mt-1">Manage your datasets and pipelines</p> */}
+          <h1 className="text-5xl font-bold tracking-tight text-white">
+            Dashboard
+          </h1>
+          <p className="text-blue-900 mt-2">
+            Manage your datasets and run quick models
+          </p>
         </div>
-        <img src={logo} alt="Logo" className="h-48 w-48 rounded-md" />
+        <img
+          src={logo}
+          alt="Logo"
+          className="h-40 w-40 rounded-md object-contain bg-white/10 ring-1 ring-white/30"
+        />
       </header>
 
-      <main className="-mt-12 mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8 space-y-6 bg-cyan-50">
-        {/* <QuickStart /> */}
+      {/* Main */}
+      <main className="mx-auto max-w-7xl px-4 pb-12 sm:px-6 lg:px-8 space-y-8 bg-cyan-50">
+        {/* KPIs */}
         <KPICards />
 
+        {/* Two-column: Recent datasets + Quick actions */}
         <div className="grid gap-6 lg:grid-cols-2">
-          <RecentDatasets />
-          <QuickActions />
+          <div className="rounded-lg bg-white p-6 shadow border border-gray-100">
+            <RecentDatasets />
+          </div>
+          <div className="rounded-lg bg-white p-6 shadow border border-gray-100">
+            <QuickActions />
+          </div>
         </div>
 
-        {/* Placeholder for future explainer video */}
-        <div className="rounded-lg bg-white p-6 shadow flex items-center justify-between">
+        {/* Explainer video */}
+        <div className="rounded-lg bg-white p-6 shadow border border-gray-100 flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold">🎬 Explainer Video</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-semibold">🎬 Explainer Video</h3>
+              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-200">
+                Coming soon
+              </span>
+            </div>
             <p className="mt-1 text-sm text-gray-600">
               A quick 2-minute video is coming soon!
             </p>
           </div>
           <button
             disabled
-            className="flex items-center space-x-2 rounded-md border px-4 py-2 text-sm bg-blue-800 text-white"
+            className="flex items-center space-x-2 rounded-md border px-4 py-2 text-sm bg-blue-800 text-white opacity-70 cursor-not-allowed"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

@@ -1,4 +1,3 @@
-# server/routers/databot.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -10,6 +9,7 @@ from server.database import get_async_db
 from server.models import Dataset as DatasetModel
 from server import schemas
 from pydantic import BaseModel
+
 router = APIRouter()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -22,29 +22,55 @@ dataset_states = {}
 class Action(BaseModel):
     action: str
 
-actions_store = {}  # Temporary in-memory store; replace with DB later
+actions_store = {}
+
 class DatabotQueryFlexible(BaseModel):
     question: str
     dataset_id: Optional[int] = None
-    bot_type: Optional[str] = None         # "databot" | "modelbot" (optional)
-    model_context: Optional[Dict[str, Any]] = None  # payload from predictors page
-    
-    
+    bot_type: Optional[str] = None
+    model_context: Optional[Dict[str, Any]] = None
+
+class WelcomeQuery(BaseModel):
+    question: str
+    app_info: str
+
+@router.post("/query_welcome")
+async def databot_query_welcome(request: WelcomeQuery):
+    question = request.question or ""
+    app_info = request.app_info or ""
+    system_prompt = (
+        "You’re an expert on the df.jsx app, bursting with enthusiasm! Use the provided app info "
+        "to answer questions in a fun, engaging, conversational way, summarizing details naturally. "
+        "Help users pick the best dataset for models (e.g., Random Forest, Logistic Regression) and "
+        "interpret model outputs (e.g., feature importances, classification metrics). For unrelated "
+        "questions, say: 'I’m here to help with df.jsx. Ask about features, workflow, or model guidance!'"
+    )
+    user_prompt = f"App Info:\n{app_info}\n\nQuestion: {question}"
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        answer = response.choices[0].message.content
+        return {"answer": answer}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
+
 @router.post("/query")
 async def databot_query(
     request: DatabotQueryFlexible,
     db: AsyncSession = Depends(get_async_db),
 ):
     question = request.question or ""
-
-    # === Branch A: dataset mode (existing behavior) ===
     if request.dataset_id is not None:
         dataset_id = request.dataset_id
         result = await db.execute(select(DatasetModel).where(DatasetModel.id == dataset_id))
         dataset = result.scalar_one_or_none()
         if not dataset:
             raise HTTPException(status_code=404, detail="Dataset not found")
-
         context = f"""
 Dataset Title: {dataset.title}
 Description: {dataset.description or "No description"}
@@ -77,22 +103,17 @@ Current Stage: {dataset.current_stage or "N/A"}
             context += "\nCategorical Mappings:\n"
             for col, mapping in dataset.categorical_mappings.items():
                 context += f"- {col}: {mapping}\n"
-
         system_prompt = (
             "You are a helpful tutor for data science. Use the provided dataset "
             "metadata — including cleaning history and preprocessing details — to "
             "answer questions clearly and concisely."
         )
         user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
-
-    # === Branch B: model mode (predictors page) ===
     elif request.model_context:
         ctx = request.model_context or {}
         feat = (ctx.get("feature") or "").lower()
         inputs = ctx.get("inputs") or {}
         result = ctx.get("result") or {}
-
-        # Compact human-readable context
         lines = []
         if feat.startswith("college_earnings"):
             pct = result.get("prob")
@@ -125,19 +146,16 @@ Current Stage: {dataset.current_stage or "N/A"}
                 ))
             if result.get("rewrite"):
                 lines.append(f"Rewrite ≤15: {result['rewrite']}")
-
         context = "\n".join([ln for ln in lines if ln])
         system_prompt = (
-            "You are ModelBot. Explain the model's prediction clearly, identify the most "
-            "influential factors, and suggest concrete, actionable improvements. Keep answers concise."
+            "You are ModelBot, an expert assistant for model predictions. Answer questions naturally and concisely, "
+            "using the provided context to explain results or related details. Avoid repeating structured responses like "
+            "'Influential Factors' or 'Actionable Improvements' unless explicitly asked. Focus on conversational, "
+            "context-specific answers, maintaining the existing context for follow-up questions."
         )
         user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
-
     else:
-        # Neither dataset_id nor model_context provided
         raise HTTPException(status_code=422, detail="Provide dataset_id or model_context")
-
-    # ---- OpenAI call (shared) ----
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -151,7 +169,6 @@ Current Stage: {dataset.current_stage or "N/A"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
 
-
 @router.get("/suggestions/{dataset_id}")
 async def get_suggestions(dataset_id: int, page: str = Query(None), db: AsyncSession = Depends(get_async_db)):
     suggestions = []
@@ -159,7 +176,6 @@ async def get_suggestions(dataset_id: int, page: str = Query(None), db: AsyncSes
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    
     state = dataset_states.get(dataset_id, {})
     if page == "data-cleaning":
         if dataset.column_metadata:
@@ -193,10 +209,7 @@ async def databot_query_model(request: ModelBotQuery):
     bucket = ctx.get("result", {}).get("bucket")
     confusion = ctx.get("result", {}).get("confusion_sources", [])
     rewrite = ctx.get("result", {}).get("rewrite")
-
     pct = f"{round(prob * 100)}%" if isinstance(prob, (int, float)) else "—"
-
-    # Build a compact context summary for the model explanation
     summary_lines = [
         "You are a helpful tutor for model explanations. Explain clearly and concisely.",
         "Context: Accessibility Misinterpretation Risk prediction.",
@@ -214,14 +227,12 @@ async def databot_query_model(request: ModelBotQuery):
         )
     if rewrite:
         summary_lines.append(f"≤15-word rewrite: {rewrite}")
-
     system_prompt = (
         "You are ModelBot. Explain why the model predicted this score, point out the most "
         "influential confusion sources, and suggest concrete improvements. Keep it practical."
     )
     user_prompt = "\n".join([ln for ln in summary_lines if ln]) + \
                   f"\n\nUser question: {request.question.strip()}"
-
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -234,7 +245,6 @@ async def databot_query_model(request: ModelBotQuery):
         return {"answer": answer}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"OpenAI request failed: {str(e)}")
-
 
 @router.post("/track/{dataset_id}")
 async def track_action(dataset_id: int, action: Action):
