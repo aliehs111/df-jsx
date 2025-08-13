@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import CollegeEarningsCard from "./CollegeEarningsCard";
 
-// Advanced Predictors page for df-jsx
-// - Adds a Settings panel to adjust model sensitivity, thresholds, category toggles, and audience effect.
-// - Sends optional `overrides` with the request (backend can merge with defaults if supported).
-// - Reuses global DataBot as "ModelBot" via window event.
-
 const AUDIENCES = [
   { label: "ESL", value: "ESL" },
   { label: "Older Adults", value: "OlderAdults" },
@@ -58,6 +53,9 @@ export default function PredictorsPro() {
     [text, audience, medium]
   );
 
+  const API_BASE =
+    import.meta.env.MODE === "development" ? "http://127.0.0.1:8000" : "";
+
   useEffect(() => {
     // Keyboard shortcut: Cmd/Ctrl+Enter to run
     const onKey = (e) => {
@@ -94,11 +92,10 @@ export default function PredictorsPro() {
           enable_categories: Object.entries(enabled)
             .filter(([_, v]) => v)
             .map(([k]) => k),
-          // audience_weights: { ESL: 1.15, OlderAdults: 1.1 } // optional live override example
         };
       }
 
-      const res = await fetch("/api/predictors/infer", {
+      const res = await fetch(`${API_BASE}/api/predictors/infer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -109,9 +106,41 @@ export default function PredictorsPro() {
         throw new Error(msg || `Request failed (${res.status})`);
       }
       const data = await res.json();
+
+      // Fetch rewrite from DataBot
+      const databotPayload = {
+        question: `Rewrite the following text to be clear and concise for ${audience} via ${medium}, max 15 words: "${text.trim()}"`,
+        bot_type: "modelbot",
+        model_context: {
+          feature: "accessibility_risk",
+          inputs: {
+            text: text.trim(),
+            audience,
+            medium,
+            intent: intent || null,
+          },
+          result: {
+            prob: data.misinterpretation_probability,
+            bucket: data.risk_bucket,
+            confusion_sources: data.confusion_sources,
+          },
+        },
+      };
+      const databotRes = await fetch(`${API_BASE}/api/databot/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(databotPayload),
+      });
+      if (!databotRes.ok) {
+        throw new Error(`DataBot request failed (${databotRes.status})`);
+      }
+      const databotData = await databotRes.json();
+      data.rewrite_15_words = databotData.answer || data.rewrite_15_words;
+
       setResult(data);
 
-      // Build and store context for DataBot (do not open)
+      // Build and store context for DataBot
       const ctx = {
         bot: "ModelBot",
         feature: "accessibility_risk",
@@ -130,7 +159,6 @@ export default function PredictorsPro() {
         },
       };
 
-      // Persist for the chat session without opening the panel
       window.dispatchEvent(
         new CustomEvent("dfjsx-set-bot-context", {
           detail: { botType: "modelbot", context: ctx },
@@ -180,33 +208,6 @@ export default function PredictorsPro() {
   const [ceLoading, setCeLoading] = useState(false);
   const [ceError, setCeError] = useState("");
   const [ceResult, setCeResult] = useState(null);
-
-  // Simple option lists for the college card
-  const DEGREE_LEVELS = [
-    { label: "Associate", value: "Associate" },
-    { label: "Bachelor", value: "Bachelor" },
-    { label: "Master", value: "Master" },
-    { label: "Professional", value: "Professional" },
-    { label: "Doctoral", value: "Doctoral" },
-  ];
-  const STATES = [
-    "CA",
-    "NY",
-    "TX",
-    "FL",
-    "IL",
-    "PA",
-    "OH",
-    "GA",
-    "NC",
-    "MI",
-  ].map((s) => ({ label: s, value: s }));
-  const CIP4 = [
-    { label: "Computer Science (11.01)", value: "1101" },
-    { label: "Accounting (52.03)", value: "5203" },
-    { label: "Engineering (14.01)", value: "1401" },
-    { label: "Biological Sciences (26.01)", value: "2601" },
-  ];
 
   // ---- College Earnings handler ----
   async function handlePredictCollege() {
@@ -305,7 +306,7 @@ export default function PredictorsPro() {
                 Notification text
               </label>
               <textarea
-                className="w-full rounded-xl border border-gray-300 p-3 focus:outline-none focus:ring-2"
+                className="w-full rounded-xl border border-gray-200 p-3 focus:outline-none focus:ring-2"
                 rows={8}
                 placeholder="Paste the message your users will receive..."
                 value={text}
@@ -357,7 +358,7 @@ export default function PredictorsPro() {
                 ref={predictBtnRef}
                 onClick={handlePredict}
                 disabled={!canPredict || loading}
-                className="inline-flex items-center rounded-2xl bg-black px-4 py-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center rounded-2xl bg-primary px-4 py-2 text-white hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {loading ? (
                   <Spinner label="Predicting" />
@@ -471,9 +472,23 @@ export default function PredictorsPro() {
                 <div className="pt-2">
                   <button
                     onClick={openModelBot}
-                    className="inline-flex items-center rounded-2xl border border-gray-300 px-3 py-2 text-sm font-medium shadow-sm hover:bg-gray-50"
+                    className="btn btn-lg relative overflow-hidden bg-orange-500 text-white font-semibold shadow-md hover:bg-orange-600 hover:scale-105 transition-all duration-200 group"
                   >
-                    Why these results?
+                    <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent translate-x-[-150%] animate-shine group-hover:animate-shine" />
+                    <svg
+                      className="h-5 w-5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                      />
+                    </svg>
+                    Ask Databot about these results!
                   </button>
                 </div>
               </>
@@ -489,13 +504,14 @@ export default function PredictorsPro() {
     </div>
   );
 }
+
 function Select({ label, value, onChange, options }) {
   // options must be [{label, value}, ...]
   return (
     <label className="block">
       <span className="mb-1 block text-sm font-medium">{label}</span>
       <select
-        className="w-full rounded-xl border border-gray-300 p-2.5 text-sm focus:outline-none focus:ring-2"
+        className="w-full rounded-xl border border-gray-200 p-2.5 text-sm focus:outline-none focus:ring-2"
         value={value}
         onChange={(e) => onChange(e.target.value)}
       >
@@ -508,6 +524,7 @@ function Select({ label, value, onChange, options }) {
     </label>
   );
 }
+
 function SettingsPanel({
   sensitivity,
   setSensitivity,

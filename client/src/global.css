@@ -1,77 +1,110 @@
+/* ===================== */
+/* global.css (drop-in)  */
+/* ===================== */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-
-
-
-
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  /* Removed `color-scheme` and dark background */
-  color: #1a1a1a;
-  background-color: #ffffff;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
-
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-@media (prefers-color-scheme: light) {
+/* ---------- Base resets & brand defaults ---------- */
+@layer base {
   :root {
-    color: #213547;
-    background-color: #ffffff;
+    @apply bg-white text-neutralDark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply antialiased;
+  }
+
+  /* Links (content links; nav links will override with their own classes) */
+  a {
+    @apply font-medium text-secondary no-underline;
   }
   a:hover {
-    color: #747bff;
+    @apply text-primary;
   }
+
+  /* Buttons: let Tailwind classes control colors — no hardcoded bg */
   button {
-    background-color: #f9f9f9;
+    @apply bg-transparent text-inherit font-medium rounded-xl cursor-pointer transition;
+  }
+  button:focus-visible {
+    @apply outline-none ring-2 ring-primary/40;
+  }
+}
+
+/* ---------- Components (use these classes in JSX) ---------- */
+@layer components {
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-xl text-sm font-semibold transition
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply bg-primary text-white px-4 py-2 shadow-sm hover:bg-secondary;
+  }
+  .btn-outline {
+    @apply border-2 border-primary text-primary px-3 py-1.5 hover:bg-primary/5;
+  }
+  .btn-ghost {
+    @apply text-primary px-3 py-1.5 hover:bg-primary/5;
+  }
+  .btn-soft {
+    @apply bg-primary/10 text-primary px-4 py-2 ring-1 ring-inset ring-primary/20 hover:bg-primary/15;
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white px-4 py-2 shadow-sm hover:bg-red-700;
+  }
+  .btn-icon {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary text-white hover:bg-secondary;
+  }
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  .btn-lg {
+    @apply px-5 py-2.5 text-base;
+  }
+
+  /* Form controls */
+  .input {
+    @apply w-full rounded-xl border border-neutral-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40;
+  }
+  .select {
+    @apply w-full rounded-xl border border-neutral-300 p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40;
+  }
+  .textarea {
+    @apply w-full rounded-xl border border-neutral-300 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40;
+  }
+
+  /* Surfaces */
+  .card {
+    @apply rounded-2xl bg-white shadow-sm ring-1 ring-black/5;
+  }
+  .card-hover {
+    @apply transition hover:shadow-md hover:ring-black/10;
+  }
+}
+
+/* ---------- Utilities ---------- */
+@layer utilities {
+  .animate-fade-in {
+    animation: fade-in 0.8s ease-out both;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(15px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 }

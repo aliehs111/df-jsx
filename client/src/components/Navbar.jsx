@@ -16,6 +16,7 @@ const NAV_LINKS = [
   { name: "Resources", to: "/resources" },
   { name: "Models", to: "/models" },
   { name: "Predictors", to: "/predictors" },
+  { name: "About", to: "/about" },
 ];
 
 export default function Navbar({ user, setUser }) {
@@ -23,7 +24,6 @@ export default function Navbar({ user, setUser }) {
 
   const handleLogout = async () => {
     try {
-      // 1) Call FastAPI Users' logout endpoint to clear the HttpOnly cookie
       await fetch("/api/auth/jwt/logout", {
         method: "POST",
         credentials: "include",
@@ -31,41 +31,53 @@ export default function Navbar({ user, setUser }) {
     } catch (err) {
       console.error("Logout error:", err);
     } finally {
-      // 2) Also clear any localStorage state and App state
       localStorage.removeItem("token");
       localStorage.removeItem("user");
-      setUser(null);
-      // 3) Navigate back to the Splash page
+      setUser?.(null);
       navigate("/", { replace: true });
     }
   };
 
+  const desktopLinkClasses = ({ isActive }) =>
+    [
+      "relative inline-flex items-center px-3 py-2 text-sm font-medium transition-colors",
+      isActive
+        ? "text-accent border-b-2 border-accent"
+        : "text-white hover:text-accent",
+    ].join(" ");
+
+  const mobileLinkClasses = ({ isActive }) =>
+    [
+      "block w-full rounded-md px-3 py-2 text-base font-medium",
+      isActive ? "bg-accent text-white" : "text-white hover:bg-primary/80",
+    ].join(" ");
+
   return (
-    <Disclosure as="nav" className="bg-cyan-400 shadow">
+    <Disclosure
+      as="nav"
+      className="sticky top-0 z-50 bg-primary text-white shadow-lg"
+    >
       {({ open }) => (
         <>
+          {/* Desktop */}
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="flex h-16 justify-between">
-              {/* Logo + Links */}
-              <div className="flex ">
-                <NavLink to="/dashboard" className="flex items-center">
+            <div className="flex h-16 items-center justify-between">
+              {/* Logo + links */}
+              <div className="flex items-center gap-6">
+                <NavLink to="/" className="inline-flex items-center">
                   <img
                     src={newlogo500}
-                    alt="logo"
-                    className="h-12 w-auto rounded-md"
+                    alt="df.jsx logo"
+                    className="h-9 w-9 block rounded-md shadow-sm shrink-0"
                   />
                 </NavLink>
-                <div className="hidden sm:ml-8 sm:flex sm:space-x-4">
+
+                <div className="hidden sm:flex sm:items-center sm:gap-1">
                   {NAV_LINKS.map((link) => (
                     <NavLink
                       key={link.name}
                       to={link.to}
-                      className={({ isActive }) =>
-                        (isActive
-                          ? "border-b-2 border-indigo-700 text-indigo-900"
-                          : "text-white hover:text-gray-100") +
-                        " px-3 py-2 rounded-md text-sm font-medium"
-                      }
+                      className={desktopLinkClasses}
                     >
                       {link.name}
                     </NavLink>
@@ -73,45 +85,46 @@ export default function Navbar({ user, setUser }) {
                 </div>
               </div>
 
-              {/* Auth/UI controls */}
-              <div className="hidden sm:flex sm:items-center sm:space-x-4">
+              {/* Auth controls */}
+              <div className="hidden sm:flex sm:items-center sm:gap-3">
                 {user ? (
                   <>
-                    <span className="text-md text-indigo-900">
+                    <span className="text-sm">
                       Welcome,{" "}
                       <span className="font-semibold">{user.email}</span>
                     </span>
                     <button
                       onClick={handleLogout}
-                      className="flex items-center space-x-1 bg-blue-800 hover:bg-lime-400 px-3 py-1 rounded-md text-sm text-white"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
                     >
                       <ArrowRightOnRectangleIcon className="h-5 w-5" />
-                      <span>Logout</span>
+                      Logout
                     </button>
                   </>
                 ) : (
                   <>
                     <NavLink
                       to="/login"
-                      className="flex items-center space-x-1 text-white hover:underline text-sm"
+                      className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold text-white hover:text-accent"
                     >
                       <ArrowRightOnRectangleIcon className="h-5 w-5" />
-                      <span>Login</span>
+                      Login
                     </NavLink>
                     <NavLink
                       to="/signup"
-                      className="flex items-center space-x-1 bg-blue-800 hover:bg-green-800 px-3 py-1 rounded-md text-sm text-white"
+                      className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-accent/90"
                     >
                       <UserPlusIcon className="h-5 w-5" />
-                      <span>Sign Up</span>
+                      Sign Up
                     </NavLink>
                   </>
                 )}
               </div>
 
-              {/* Mobile menu button */}
-              <div className="-mr-2 flex items-center sm:hidden">
-                <Disclosure.Button className="inline-flex items-center justify-center rounded-md p-2 text-white hover:bg-indigo-500">
+              {/* Mobile button */}
+              <div className="flex items-center sm:hidden">
+                <Disclosure.Button className="inline-flex items-center justify-center rounded-md p-2 text-white hover:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50">
+                  <span className="sr-only">Open main menu</span>
                   {open ? (
                     <XMarkIcon className="h-6 w-6" />
                   ) : (
@@ -123,53 +136,48 @@ export default function Navbar({ user, setUser }) {
           </div>
 
           {/* Mobile menu */}
-          <Disclosure.Panel className="sm:hidden bg-cyan-200">
-            <div className="space-y-1 px-2 pt-2 pb-3">
+          <Disclosure.Panel className="sm:hidden bg-primary/95">
+            <div className="space-y-1 px-3 py-3">
               {NAV_LINKS.map((link) => (
                 <Disclosure.Button
                   key={link.name}
                   as={NavLink}
                   to={link.to}
-                  className={({ isActive }) =>
-                    (isActive
-                      ? "bg-indigo-700 text-white"
-                      : "text-indigo-900 hover:bg-indigo-300") +
-                    " block px-3 py-2 rounded-md text-base font-medium"
-                  }
+                  className={mobileLinkClasses}
                 >
                   {link.name}
                 </Disclosure.Button>
               ))}
 
-              <div className="bg-lime-400 border-t border-indigo-300/50 mt-2 pt-2">
+              <div className="mt-2 border-t border-white/20 pt-2">
                 {user ? (
                   <Disclosure.Button
                     as="button"
                     onClick={handleLogout}
-                    className="flex w-full items-center space-x-2 px-3 py-2 rounded-md bg-lime-400 text-indigo-900 hover:bg-indigo-300"
+                    className="flex w-full items-center gap-2 rounded-md bg-accent px-3 py-2 text-base font-medium text-white hover:bg-accent/90"
                   >
                     <ArrowRightOnRectangleIcon className="h-6 w-6" />
-                    <span>Logout</span>
+                    Logout
                   </Disclosure.Button>
                 ) : (
-                  <>
+                  <div className="flex flex-col gap-2">
                     <Disclosure.Button
                       as={NavLink}
                       to="/login"
-                      className="flex w-full items-center space-x-2 px-3 py-2 rounded-md bg-lime-400 text-indigo-900 hover:bg-indigo-300"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-base font-medium text-white hover:text-accent hover:bg-primary/80"
                     >
                       <ArrowRightOnRectangleIcon className="h-6 w-6" />
-                      <span>Login</span>
+                      Login
                     </Disclosure.Button>
                     <Disclosure.Button
                       as={NavLink}
                       to="/signup"
-                      className="flex w-full items-center space-x-2 px-3 py-2 rounded-md bg-indigo-700 text-white hover:bg-indigo-800"
+                      className="flex w-full items-center gap-2 rounded-md bg-accent px-3 py-2 text-base font-medium text-white hover:bg-accent/90"
                     >
                       <UserPlusIcon className="h-6 w-6" />
-                      <span>Sign Up</span>
+                      Sign Up
                     </Disclosure.Button>
-                  </>
+                  </div>
                 )}
               </div>
             </div>

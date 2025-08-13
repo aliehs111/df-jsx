@@ -231,16 +231,38 @@ export default function CollegeEarningsCard() {
           <button
             onClick={handlePredict}
             disabled={!canPredict || loading || optsLoading}
-            className="inline-flex items-center rounded-2xl bg-black px-4 py-2 text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center rounded-2xl bg-primary px-4 py-2 text-white hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "Predicting..." : "Predict"}
+            {loading ? (
+              "Predicting..."
+            ) : (
+              <>
+                <LightningIcon className="mr-2 h-4 w-4" />
+                Predict
+              </>
+            )}
           </button>
+
           {result && (
             <button
               onClick={openModelBot}
-              className="inline-flex items-center rounded-2xl border border-gray-300 px-3 py-2 text-sm font-medium shadow-sm hover:bg-gray-50"
+              className="btn btn-lg relative overflow-hidden bg-orange-500 text-white font-semibold shadow-md hover:bg-orange-600 hover:scale-105 transition-all duration-200 group"
             >
-              Why these results?
+              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent translate-x-[-150%] animate-shine group-hover:animate-shine" />
+              <svg
+                className="h-5 w-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"
+                />
+              </svg>
+              Ask Databot about these results!
             </button>
           )}
           {error && <div className="text-sm text-red-600">{error}</div>}
@@ -314,5 +336,18 @@ export default function CollegeEarningsCard() {
         )}
       </div>
     </div>
+  );
+}
+
+function LightningIcon({ className = "" }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M11 21 20 8h-7l2-7L4 10h7l-2 11z" />
+    </svg>
   );
 }
