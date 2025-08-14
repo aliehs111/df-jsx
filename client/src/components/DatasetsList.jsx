@@ -82,17 +82,6 @@ export default function DatasetsList() {
         again, they will be overwritten.
       </p>
 
-      <div className="flex justify-end mb-4">
-        <Link
-          to="/chat"
-          className="inline-flex items-center space-x-1 bg-lime-500 hover:bg-cyan-700 text-white text-xs px-2 py-1 rounded"
-        >
-          <ChatBubbleLeftEllipsisIcon className="h-4 w-4" />
-          <span>Chat with Databot!</span>
-          <img src={newlogo500} alt="Data Tutor" className="h-4 w-4" />
-        </Link>
-      </div>
-
       <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {datasets.map((dataset) => {
           const processed = dataset.has_cleaned_data;

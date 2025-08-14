@@ -29,6 +29,7 @@ class DatabotQueryFlexible(BaseModel):
     dataset_id: Optional[int] = None
     bot_type: Optional[str] = None
     model_context: Optional[Dict[str, Any]] = None
+    app_info: Optional[str] = None
 
 class WelcomeQuery(BaseModel):
     question: str
@@ -103,10 +104,12 @@ Current Stage: {dataset.current_stage or "N/A"}
             context += "\nCategorical Mappings:\n"
             for col, mapping in dataset.categorical_mappings.items():
                 context += f"- {col}: {mapping}\n"
+        if request.app_info:  # Check if app_info exists
+            context += "\nApp Guide:\n" + request.app_info       
         system_prompt = (
-            "You are a helpful tutor for data science. Use the provided dataset "
-            "metadata — including cleaning history and preprocessing details — to "
-            "answer questions clearly and concisely."
+            "You are a helpful tutor for df.jsx. For questions about using the app or cleaning data, provide step-by-step instructions from the App Guide, "
+            "tailored to the dataset’s metadata (e.g., column names, missing values). For dataset-specific questions, focus on metadata details. "
+            "Answer clearly and concisely, combining both contexts when relevant."
         )
         user_prompt = f"Context:\n{context}\n\nQuestion: {question}"
     elif request.model_context:

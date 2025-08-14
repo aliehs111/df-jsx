@@ -1,4 +1,3 @@
-// src/App.jsx
 import "./App.css";
 import React, { useEffect, useState } from "react";
 import {
@@ -6,6 +5,7 @@ import {
   Routes,
   Route,
   Navigate,
+  useLocation,
 } from "react-router-dom";
 
 import SignIn from "./components/SignIn";
@@ -25,6 +25,16 @@ import Models from "./components/Models";
 import Databot from "./components/Databot";
 import Predictors from "./components/Predictors";
 import About from "./components/About";
+
+function DatabotWrapper({ user }) {
+  const location = useLocation();
+  if (
+    ["/upload", "/datasets", "/resources", "/about"].includes(location.pathname)
+  ) {
+    return null;
+  }
+  return <Databot />;
+}
 
 function App() {
   const [user, setUser] = useState(null);
@@ -143,8 +153,8 @@ function App() {
         />
       </Routes>
 
-      {/* 👇 Add Databot floating widget outside Routes */}
-      {user && <Databot />}
+      {/* Add Databot floating widget inside Router */}
+      {user && <DatabotWrapper user={user} />}
 
       <Footer />
     </Router>

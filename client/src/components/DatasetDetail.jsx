@@ -127,11 +127,21 @@ export default function DatasetDetail() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold">{dataset.title}</h2>
-        {hasClean && (
-          <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
-            Processed
-          </span>
-        )}
+        <div className="flex items-center space-x-2">
+          {hasClean && (
+            <>
+              {/* <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
+                Processed
+              </span> */}
+              <button
+                onClick={downloadCleaned}
+                className="bg-gradient-to-r from-green-200 to-green-400 text-green-800 px-3 py-1 rounded-full text-sm shadow-sm hover:from-green-300 hover:to-green-500 transition-all duration-200 border border-green-100/50 hover:border-green-200/70 font-semibold"
+              >
+                Download Cleaned Dataset
+              </button>
+            </>
+          )}
+        </div>
       </div>
       <p className="text-gray-600 mb-2">{dataset.description}</p>
       <p className="text-sm text-gray-400 mb-6">
@@ -183,21 +193,21 @@ export default function DatasetDetail() {
           <div className="flex space-x-2">
             <button
               onClick={() => fetchHeatmap("raw")}
-              className="bg-blue-800 text-white px-3 py-1 rounded"
+              className="bg-gradient-to-r from-amber-500 to-amber-700 text-white px-4 py-2 rounded-md shadow-md hover:from-amber-600 hover:to-amber-800 transition-all duration-200 border border-amber-300/50 hover:border-amber-400/70 font-semibold"
             >
               Heatmap
             </button>
             <button
               onClick={() => fetchInsights("raw")}
-              className="bg-blue-800 text-white px-3 py-1 rounded"
+              className="bg-gradient-to-r from-blue-700 to-blue-900 text-white px-4 py-2 rounded-md shadow-md hover:from-blue-800 hover:to-blue-950 transition-all duration-200 border border-blue-300/50 hover:border-blue-400/70 font-semibold"
             >
               Insights
             </button>
             <Link
               to={`/datasets/${id}/clean?which=raw`}
-              className="bg-blue-600 text-white px-3 py-1 rounded"
+              className="bg-gradient-to-r from-blue-500 to-blue-700 text-white px-4 py-2 rounded-md shadow-md hover:from-blue-600 hover:to-blue-800 transition-all duration-200 border border-blue-200/50 hover:border-blue-300/70 font-semibold"
             >
-              Sandbox
+              Preprocess
             </Link>
           </div>
         </div>
@@ -255,28 +265,22 @@ export default function DatasetDetail() {
             <div className="flex space-x-2">
               <button
                 onClick={() => fetchHeatmap("cleaned")}
-                className="bg-green-800 text-white px-3 py-1 rounded"
+                className="bg-gradient-to-r from-amber-500 to-amber-700 text-white px-4 py-2 rounded-md shadow-md hover:from-amber-600 hover:to-amber-800 transition-all duration-200 border border-amber-300/50 hover:border-amber-400/70 font-semibold"
               >
                 Heatmap
               </button>
               <button
                 onClick={() => fetchInsights("cleaned")}
-                className="bg-green-800 text-white px-3 py-1 rounded"
+                className="bg-gradient-to-r from-blue-700 to-blue-900 text-white px-4 py-2 rounded-md shadow-md hover:from-blue-800 hover:to-blue-950 transition-all duration-200 border border-blue-300/50 hover:border-blue-400/70 font-semibold"
               >
                 Insights
               </button>
               <Link
                 to={`/datasets/${id}/clean?which=cleaned`}
-                className="bg-green-600 text-white px-3 py-1 rounded"
+                className="bg-gradient-to-r from-blue-500 to-blue-700 text-white px-4 py-2 rounded-md shadow-md hover:from-blue-600 hover:to-blue-800 transition-all duration-200 border border-blue-200/50 hover:border-blue-300/70 font-semibold"
               >
-                Sandbox
+                Process Again
               </Link>
-              <button
-                onClick={downloadCleaned}
-                className="bg-green-800 text-white px-3 py-1 rounded"
-              >
-                Download Cleaned
-              </button>
             </div>
           </div>
         )}
@@ -304,18 +308,6 @@ export default function DatasetDetail() {
       {heatmapUrl && (
         <img src={heatmapUrl} alt="heatmap" className="mt-4 rounded shadow" />
       )}
-
-      {/* Chat Link */}
-      <div className="mt-8 text-center">
-        <Link
-          to="/chat"
-          className="inline-flex items-center space-x-1 bg-lime-500 hover:bg-cyan-700 text-white text-xs px-2 py-1 rounded"
-        >
-          <ChatBubbleLeftEllipsisIcon className="h-4 w-4" />
-          <span>Chat with Databot!</span>
-          <img src={newlogo500} alt="Data Tutor" className="h-4 w-4" />
-        </Link>
-      </div>
     </div>
   );
 }
