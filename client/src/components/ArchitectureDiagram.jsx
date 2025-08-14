@@ -1,6 +1,8 @@
-// client/src/components/ArchitectureDiagran.jsx
+// client/src/components/ArchitectureDiagram.jsx
+import archSvg from "../assets/dfjsx-arch.svg";
+
 export default function ArchitectureDiagram({
-  src = "/src/assets/dfjsx-arch.svg",
+  src = archSvg,
   caption = "df.jsx architecture overview",
 }) {
   return (
