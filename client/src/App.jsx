@@ -24,6 +24,7 @@ import DataInsights from "./components/DataInsights";
 import Models from "./components/Models";
 import Databot from "./components/Databot";
 import Predictors from "./components/Predictors";
+import About from "./components/About";
 
 function App() {
   const [user, setUser] = useState(null);
@@ -127,6 +128,7 @@ function App() {
           path="/predictors"
           element={<ProtectedRoute element={<Predictors />} />}
         />
+        <Route path="/about" element={<ProtectedRoute element={<About />} />} />
 
         {/* Catch-all */}
         <Route
