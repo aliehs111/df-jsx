@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import CollegeEarningsCard from "./CollegeEarningsCard";
+import DevNotesPredictors from "./DevNotesPredictors";
 
 const AUDIENCES = [
   { label: "ESL", value: "ESL" },
@@ -263,17 +264,25 @@ export default function PredictorsPro() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Predictor Models
-          </h1>
-          <p className="text-sm text-gray-500">
-            Accessibility Misinterpretation Risk & College Earnings
-          </p>
+    <div className="min-h-screen bg-neutralLight">
+      {/* Header */}
+      <header className="relative overflow-hidden bg-gradient-to-r from-primary via-primary/90 to-secondary py-10 px-8 sm:px-20 shadow-md mb-8">
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white drop-shadow-sm">
+                Predictor Models
+              </h1>
+              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white/90 ring-1 ring-white/25">
+                v0.9 • dev
+              </span>
+            </div>
+            <p className="mt-2 text-cyan-100 text-sm">
+              Accessibility Misinterpretation Risk & College Earnings
+            </p>
+          </div>
         </div>
-      </div>
+      </header>
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* ====================== ROW 1: Accessibility ====================== */}
@@ -501,12 +510,12 @@ export default function PredictorsPro() {
           <CollegeEarningsCard />
         </div>
       </div>
+      <DevNotesPredictors />
     </div>
   );
 }
 
 function Select({ label, value, onChange, options }) {
-  // options must be [{label, value}, ...]
   return (
     <label className="block">
       <span className="mb-1 block text-sm font-medium">{label}</span>

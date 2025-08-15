@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import DevNotesModels from "../components/DevNotesModels.jsx";
 
 export default function Models() {
   const [datasets, setDatasets] = useState([]);
@@ -17,6 +18,46 @@ export default function Models() {
   const [nClusters, setNClusters] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+
+  // Hide unfinished models from the UI
+  const EXCLUDED_MODELS = new Set(["TimeSeriesForecasting"]);
+  const visibleModels = models.filter((m) => !EXCLUDED_MODELS.has(m.name));
+
+  useEffect(() => {
+    if (visibleModels.length > 0 && !selectedModel) {
+      setSelectedModel(visibleModels[0].name);
+    } else if (selectedModel && EXCLUDED_MODELS.has(selectedModel)) {
+      // If an excluded model was previously selected, switch to the first visible one
+      setSelectedModel(visibleModels[0]?.name || null);
+    }
+  }, [models, visibleModels, selectedModel]);
+
+  const modelMeta = {
+    RandomForest: {
+      tags: ["Target required", "≥2 classes", "Numeric+Categorical OK"],
+      hint: "Supervised. Choose a target with at least 2 classes. Handles mixed features; clean missing values first.",
+    },
+    LogisticRegression: {
+      tags: ["Binary target", "Target required", "Numeric+Categorical OK"],
+      hint: "Supervised (best for binary). Needs a clean target column (0/1 or two classes).",
+    },
+    PCA_KMeans: {
+      tags: ["No target", "Numeric features", "Choose K"],
+      hint: "Unsupervised. No target column. Provide numeric features; standardization recommended.",
+    },
+    Sentiment: {
+      tags: ["GPU Inference", "Text column", "English"],
+      hint: "Needs a text column. Returns label counts and sample scores.",
+    },
+    TimeSeriesForecasting: {
+      tags: ["Date+Value columns", "Regular frequency"],
+      hint: "Provide date and value columns. Ensure clean, sorted, regular intervals.",
+    },
+    AnomalyDetection: {
+      tags: ["GPU Inference", "No target", "Numeric features"],
+      hint: "Unsupervised. Provide numeric features; works best after cleaning and scaling.",
+    },
+  };
 
   useEffect(() => {
     const fetchCleanedDatasets = async () => {
@@ -258,9 +299,26 @@ export default function Models() {
 
   return (
     <div className="max-w-6xl mx-auto p-8 bg-gray-50 min-h-screen">
-      <h1 className="text-4xl font-bold text-gray-800 mb-8">
-        Model Execution Dashboard
-      </h1>
+      {/* Header */}
+      <header className="relative overflow-hidden bg-gradient-to-r from-primary via-primary/90 to-secondary py-10 px-8 sm:px-20 shadow-md mb-8">
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white drop-shadow-sm">
+                Models
+              </h1>
+              <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white/90 ring-1 ring-white/25">
+                v0.9 • dev
+              </span>
+            </div>
+            <p className="mt-2 text-cyan-100 text-sm">
+              Random Forest, Logistic Regression, PCA + KMeans, Sentiment
+              Analysis, Anomaly Detection
+            </p>
+          </div>
+        </div>
+      </header>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white p-6 rounded-xl shadow-md border border-gray-200">
           <h2 className="text-2xl font-semibold text-gray-700 mb-4 flex items-center">
@@ -323,7 +381,7 @@ export default function Models() {
             Configure Model
           </h2>
           <ul className="space-y-3 mb-6">
-            {models.map((model) => (
+            {visibleModels.map((model) => (
               <li
                 key={model.name}
                 className={`p-4 rounded-lg cursor-pointer transition-all duration-300 ${
@@ -334,9 +392,26 @@ export default function Models() {
                 onClick={() => setSelectedModel(model.name)}
                 title={model.description || ""}
               >
-                <span className="text-gray-800 font-medium text-lg">
-                  {model.name}
-                </span>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-gray-800 font-medium text-lg">
+                      {model.name}
+                    </span>
+                    {modelMeta[model.name]?.tags?.map((tag, i) => (
+                      <span
+                        key={i}
+                        className="inline-flex items-center rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-gray-300"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                  {modelMeta[model.name]?.hint && (
+                    <div className="mt-1 text-xs text-gray-600 leading-snug">
+                      {modelMeta[model.name].hint}
+                    </div>
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -1163,6 +1238,7 @@ export default function Models() {
           )}
         </div>
       )}
+      <DevNotesModels />
     </div>
   );
 }

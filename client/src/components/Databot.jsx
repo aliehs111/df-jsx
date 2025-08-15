@@ -21,6 +21,22 @@ export default function Databot({ selectedDataset }) {
   const [forcedContext, setForcedContext] = useState(null);
   const [hasPrimed, setHasPrimed] = useState(false);
 
+  // Route flags
+  const isAppInfoRoute =
+    location.pathname === "/dashboard" || location.pathname === "/models";
+  const isPredictors = location.pathname === "/predictors";
+
+  const hasPredictorContext = Boolean(
+    (forcedContext && (forcedContext.result || forcedContext.feature)) ||
+      (selectedDataset && selectedDataset.latestPredictorResult)
+  );
+
+  const canChat = isAppInfoRoute
+    ? true
+    : isPredictors
+    ? hasPredictorContext
+    : true;
+
   useEffect(() => {
     const h = (e) => {
       setForcedContext(null);
@@ -80,15 +96,15 @@ export default function Databot({ selectedDataset }) {
   const askDatabot = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
+    // Don't allow sends on Predictors until we have predictor context
+    if (isPredictors && !hasPredictorContext) {
+      return;
+    }
 
     const userMessage = { role: "user", content: input };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
-
-    const isAppInfoRoute =
-      location.pathname === "/dashboard" || location.pathname === "/models";
-    const isPredictors = location.pathname === "/predictors";
 
     try {
       const effectiveBotType = isAppInfoRoute ? "databot" : botType;
@@ -312,6 +328,28 @@ export default function Databot({ selectedDataset }) {
               )}
               <div ref={chatEndRef} />
             </div>
+            {isPredictors && !canChat && (
+              <div className="flex items-center gap-2 px-3 py-2 mx-3 mb-2 rounded-md border border-blue-300 bg-blue-50 text-sm text-blue-700">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4 text-blue-500"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 10V3L4 14h7v7l9-11h-7z"
+                  />
+                </svg>
+                <span>
+                  <span className="font-medium">Databot is standing by.</span>{" "}
+                  Run any predictor and I’ll explain the results and next steps.
+                </span>
+              </div>
+            )}
 
             {/* Input */}
             <form onSubmit={askDatabot} className="p-3 border-t flex">
@@ -319,20 +357,29 @@ export default function Databot({ selectedDataset }) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder={
-                  location.pathname === "/dashboard" ||
-                  location.pathname === "/models"
+                  !canChat && isPredictors
+                    ? "Run a predictor to enable Databot"
+                    : isAppInfoRoute
                     ? "Ask about this app…"
                     : botType === "modelbot"
                     ? "Ask about this prediction..."
                     : "Ask about your dataset..."
                 }
-                className="flex-grow border rounded-l px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                disabled={isLoading}
+                className={`flex-grow border rounded-l px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-400 ${
+                  !canChat && isPredictors
+                    ? "bg-gray-100 text-gray-500 cursor-not-allowed"
+                    : ""
+                }`}
+                disabled={isLoading || (!canChat && isPredictors)}
               />
               <button
                 type="submit"
-                className="bg-orange-500 text-white px-4 rounded-r hover:bg-emerald-500 disabled:opacity-60"
-                disabled={isLoading}
+                className={`px-4 rounded-r text-white ${
+                  !canChat && isPredictors
+                    ? "bg-gray-300 cursor-not-allowed"
+                    : "bg-orange-500 hover:bg-emerald-500"
+                }`}
+                disabled={isLoading || (!canChat && isPredictors)}
               >
                 Send
               </button>
