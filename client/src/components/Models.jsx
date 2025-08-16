@@ -18,10 +18,21 @@ export default function Models() {
   const [nClusters, setNClusters] = useState(3);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
-
+  const [datasetBadges, setDatasetBadges] = useState({});
   // Hide unfinished models from the UI
   const EXCLUDED_MODELS = new Set(["TimeSeriesForecasting"]);
   const visibleModels = models.filter((m) => !EXCLUDED_MODELS.has(m.name));
+
+  async function fetchWithTimeout(url, opts = {}, ms = 4000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try {
+      const res = await fetch(url, { ...opts, signal: ctrl.signal });
+      return res;
+    } finally {
+      clearTimeout(t);
+    }
+  }
 
   useEffect(() => {
     if (visibleModels.length > 0 && !selectedModel) {
@@ -76,7 +87,67 @@ export default function Models() {
           return;
         }
         const data = await res.json();
-        setDatasets(Array.isArray(data) ? data : []);
+        const list = Array.isArray(data) ? data : [];
+        setDatasets(list);
+
+        // —— fetch badges (non-blocking); start with task=cluster for general signals
+        try {
+          const url =
+            "/api/databot/cleaned_datasets/recommendations?task=cluster";
+          const r = await fetchWithTimeout(
+            url,
+            { credentials: "include" },
+            3500
+          );
+          if (r.ok) {
+            const advisor = await r.json();
+            const map = {};
+            for (const it of advisor.items || []) {
+              const set = new Set(it.badges || []);
+              // optional: fold in a short hint
+              const hint = (it.why && it.why[0]) || undefined;
+              map[it.dataset_id] = { badges: set, hint };
+            }
+            // OPTIONAL: merge in logistic for binary hints
+            try {
+              const r2 = await fetchWithTimeout(
+                "/api/databot/cleaned_datasets/recommendations?task=logistic",
+                { credentials: "include" },
+                3000
+              );
+              if (r2.ok) {
+                const adv2 = await r2.json();
+                for (const it of adv2.items || []) {
+                  if (!map[it.dataset_id])
+                    map[it.dataset_id] = { badges: new Set(), hint: undefined };
+                  (it.badges || []).forEach((b) =>
+                    map[it.dataset_id].badges.add(b)
+                  );
+                  if (!map[it.dataset_id].hint && it.why && it.why[0])
+                    map[it.dataset_id].hint = it.why[0];
+                }
+              }
+            } catch {
+              /* ignore */
+            }
+
+            // Keep only badges for datasets you actually have in this page
+            const ids = new Set(list.map((d) => d.id));
+            const filtered = {};
+            for (const [id, v] of Object.entries(map)) {
+              if (ids.has(Number(id))) {
+                filtered[id] = {
+                  badges: Array.from(v.badges).slice(0, 3),
+                  hint: v.hint,
+                };
+              }
+            }
+            setDatasetBadges(filtered);
+          }
+        } catch (e) {
+          // don’t block the page if advisor fails
+          console.warn("badges fetch skipped:", e?.message || e);
+        }
       } catch (err) {
         console.error("Failed to fetch cleaned datasets", err);
         setDatasets([]);
@@ -356,6 +427,21 @@ export default function Models() {
                 >
                   <span className="text-gray-800 font-medium text-lg">
                     {ds.title}
+                    {datasetBadges[ds.id]?.badges?.length > 0 && (
+                      <div
+                        className="mt-2 flex flex-wrap gap-1"
+                        title={datasetBadges[ds.id]?.hint || ""}
+                      >
+                        {datasetBadges[ds.id].badges.map((b, i) => (
+                          <span
+                            key={i}
+                            className="inline-flex items-center rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-gray-300"
+                          >
+                            {b}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </span>
                 </li>
               ))}
@@ -600,6 +686,22 @@ export default function Models() {
             </div>
           )}
         </div>
+      </div>
+      <div className="mt-6 rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
+        ⚡ GPU inference is available on request. Since this service is manually
+        turned on for demos, it’s not always available.
+        <button
+          onClick={() =>
+            (window.location.href =
+              "mailto:smcgov11.11@gmail.com?subject=GPU%20Inference%20Request")
+          }
+          className="mt-2 inline-flex items-center rounded-md bg-blue-600 px-3 py-1 text-white text-sm font-medium hover:bg-blue-700"
+        >
+          Request GPU Access
+        </button>
+        <p className="mt-1 text-xs text-blue-700 italic">
+          (Email not monitored at all times — replies may be delayed.)
+        </p>
       </div>
 
       <div className="mt-10 text-center">

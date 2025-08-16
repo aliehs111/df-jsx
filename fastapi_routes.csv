@@ -21,6 +21,7 @@ GET,/api/databot/suggestions/{dataset_id},get_suggestions,,
 POST,/api/databot/query-model,databot_query_model,,
 POST,/api/databot/track/{dataset_id},track_action,,
 POST,/api/databot/state/{dataset_id},save_state,,
+GET,/api/databot/cleaned_datasets/recommendations,cleaned_datasets_recommendations,,
 GET,/api/datasets/{dataset_id}/rows,get_dataset_rows,,
 GET,/api/predictors/college_earnings/v1_75k_5y/encoders,get_college_earnings_encoders,,predictors
 POST,/api/predictors/infer,infer,,predictors

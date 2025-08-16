@@ -87,94 +87,120 @@ function CodeBlock({ code = "", language = "text", dark = true }) {
 export default function DevNotesModels() {
   const [open, setOpen] = useState(false);
 
-  // Frontend payload example (generic runner)
-  const fePayload = `// Frontend -> POST /api/models/run
-const payload = {
-  dataset_id,
-  model: selectedModel, // "RandomForest" | "LogisticRegression" | "PCA_KMeans" | "AnomalyDetection" | "TimeSeriesForecasting" | "Sentiment"
-  params: {
-    target: selectedTarget || null,
-    n_estimators,
-    max_depth,
-    C,
-    n_clusters,
-    date_column,
-    value_column
-  }
-};
+  /* =========================
+   * SNIPPETS (what I actually changed)
+   * ========================= */
 
-const res = await fetch("/api/models/run", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  credentials: "include",
-  body: JSON.stringify(payload),
-});
-const result = await res.json();
-setResult(result);`;
+  // 1) FastAPI: cleaned-datasets advisor (summarizes per-dataset metadata and proposes targets)
+  const beAdvisor = `# server/routers/databot.py (excerpt)
+@router.get("/cleaned_datasets/recommendations")
+async def cleaned_datasets_recommendations(task: str = Query(...), db: AsyncSession = Depends(get_async_db)):
+    """
+    task ∈ {"logistic","multiclass","cluster"}.
+    Returns a shortlist of cleaned datasets with badges (mostly_numeric, categorical_features, text_features),
+    signals (counts), and candidate target columns by class cardinality.
+    """
+    # 1) fetch cleaned datasets
+    # 2) load per-dataset column stats you computed during cleaning (dtype, n_unique, nulls)
+    # 3) derive badges/signals and candidates
+    # 4) return items sorted by a simple heuristic (e.g., smaller, cleaner first)
+    return {"task": task, "items": items}`;
 
-  // Backend model switcher (FastAPI service layer)
-  const beSwitch = `# server/models/runner.py
-from .rf import run_random_forest
-from .logreg import run_logistic_regression
-from .pca_kmeans import run_pca_kmeans
-from .anomaly import run_anomaly_detection
-from .ts_forecast import run_time_series
-from .sentiment import run_sentiment
+  // 2) Models.jsx: detect user intent (logistic vs multiclass vs cluster), with simple disambiguation
+  const feDetectTask = `// Models.jsx (helpers)
+function detectTaskFromQuestion(q) {
+  const s = (q || "").toLowerCase();
+  const mentionsLogistic = /(logistic|sigmoid)\\b/.test(s);
+  const mentionsRF = /(random forest|\\brf\\b|multiclass|multi-class)/.test(s);
+  const mentionsCluster = /(cluster|clustering|kmeans|k-means|pca)/.test(s);
+  const mentionsBinary = /\\bbinary\\b|\\byes\\b|\\bno\\b|\\btrue\\b|\\bfalse\\b/.test(s);
+  if (mentionsLogistic && mentionsRF) return mentionsBinary ? "logistic" : "multiclass";
+  if (mentionsLogistic) return "logistic";
+  if (mentionsRF) return "multiclass";
+  if (mentionsCluster) return "cluster";
+  return null;
+}`;
 
-def run_model(dataset, model_name, params):
-    if model_name == "RandomForest":
-        return run_random_forest(dataset, params)
-    if model_name == "LogisticRegression":
-        return run_logistic_regression(dataset, params)
-    if model_name == "PCA_KMeans":
-        return run_pca_kmeans(dataset, params)
-    if model_name == "AnomalyDetection":
-        return run_anomaly_detection(dataset, params)
-    if model_name == "TimeSeriesForecasting":
-        return run_time_series(dataset, params)
-    if model_name == "Sentiment":
-        return run_sentiment(dataset, params)
-    raise ValueError(f"Unknown model: {model_name}")`;
-
-  // Example packaging for classification metrics
-  const beMetrics = `# server/models/logreg.py (excerpt)
-from sklearn.metrics import classification_report, confusion_matrix
-import numpy as np, pandas as pd
-
-def run_logistic_regression(dataset, params):
-    X, y = prepare_features_and_target(dataset, params["target"])
-    clf = build_logreg(params)  # hyperparams -> estimator
-    clf.fit(X, y)
-    y_pred = clf.predict(X)
-    y_prob = clf.predict_proba(X)[:, 1]
-
-    report = classification_report(y, y_pred, output_dict=True)
-    cm = confusion_matrix(y, y_pred).tolist()
-
-    return {
-        "model": "LogisticRegression",
-        "classification_report": report,
-        "confusion_matrix": cm,
-        "class_counts": pd.Series(y).value_counts().to_dict()
-    }`;
-
-  // Example result JSON
-  const exampleJson = `{
-  "model": "RandomForest",
-  "message": "fit complete",
-  "class_counts": {"0": 124, "1": 76},
-  "classification_report": {
-    "0": {"precision": 0.86, "recall": 0.83, "f1-score": 0.84, "support": 124},
-    "1": {"precision": 0.75, "recall": 0.79, "f1-score": 0.77, "support": 76},
-    "accuracy": 0.82,
-    "macro avg": {"precision": 0.80, "recall": 0.81, "f1-score": 0.81, "support": 200},
-    "weighted avg": {"precision": 0.82, "recall": 0.82, "f1-score": 0.82, "support": 200}
+  // 3) Models.jsx: call the advisor with a timeout (so chat never hangs)
+  const feFetchAdvisor = `async function fetchAdvisor(API_BASE, task) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 4000); // timeout fallback
+  try {
+    const url = \`\${API_BASE}/api/databot/cleaned_datasets/recommendations?task=\${encodeURIComponent(task)}\`;
+    const res = await fetch(url, { method: "GET", credentials: "include", signal: ctrl.signal });
+    if (!res.ok) throw new Error(\`advisor \${res.status}\`);
+    return await res.json();
+  } finally {
+    clearTimeout(t);
   }
 }`;
 
+  // 4) Models.jsx: compact summary to show in chat + prepend into Databot prompt
+  const feSummarize = `function summarizeAdvisorResult(advisorJson) {
+  const items = advisorJson?.items || [];
+  if (!items.length) return "Advisor: No matching cleaned datasets found.";
+  const lines = items.slice(0, 8).map((it) => {
+    const badges = (it.badges || []).slice(0, 3).join(", ");
+    const why = (it.why || [])[0] || "";
+    const b = it.candidates?.binary?.slice?.(0, 2) || [];
+    const m = it.candidates?.multiclass?.slice?.(0, 2) || [];
+    const cand = b.length ? \` (binary: \${b.join(", ")})\` : (m.length ? \` (multiclass: \${m.join(", ")})\` : "");
+    return \`• \${it.title}\${badges ? \` — [\${badges}]\` : ""}\${why ? \` — \${why}\` : ""}\${cand}\`;
+  });
+  return [\`Advisor results for task "\${advisorJson.task}":\`, ...lines].join("\\n");
+}`;
+
+  // 5) Databot glue (Databot.jsx): on /models, prepend advisor summary + nudge the LLM to pick one dataset
+  const feAskDatabotBranch = `// Databot.jsx (inside askDatabot)
+if (location.pathname === "/models") {
+  const task = detectTaskFromQuestion(question);
+  if (task) {
+    try {
+      const advisor = await fetchAdvisor(API_BASE, task);
+      const summary = summarizeAdvisorResult(advisor);
+
+      // Show shortlist immediately
+      setMessages(prev => [...prev, { role: "assistant", content: summary }]);
+
+      // Send to welcome endpoint with deterministic tie-break + safety nudges
+      url = \`\${API_BASE}/api/databot/query_welcome\`;
+      question = \`\${summary}
+
+System: From these advisor results, recommend the single best dataset and, if supervised, the exact target column to use.
+If multiple candidates tie, prefer the smaller dataset (faster iteration).
+If no binary candidate is found, suggest a likely target by name and why.
+Be concise (<120 words).
+
+User question: \${userMessage.content}\`;
+      payload = { question, app_info: appInfo };
+    } catch (e) {
+      // Timeout or advisor error → graceful fallback
+      url = \`\${API_BASE}/api/databot/query_welcome\`;
+      question = \`User asked about dataset-model fit on the Models page. (Advisor failed: \${e?.message || e})
+Question: \${userMessage.content}\`;
+      payload = { question, app_info: appInfo };
+    }
+  }
+}`;
+
+  // 6) Models.jsx: lightweight badges under each dataset title (fed by advisor)
+  const feBadges = `// Models.jsx (rendering inside the dataset list item)
+{datasetBadges[ds.id]?.badges?.length > 0 && (
+  <div className="mt-2 flex flex-wrap gap-1" title={datasetBadges[ds.id]?.hint || ""}>
+    {datasetBadges[ds.id].badges.map((b, i) => (
+      <span
+        key={i}
+        className="inline-flex items-center rounded-full bg-gray-100 text-gray-700 px-2 py-0.5 text-[10px] font-semibold ring-1 ring-gray-300"
+      >
+        {b}
+      </span>
+    ))}
+  </div>
+)}`;
+
   return (
     <>
-      {/* Floating button — bottom-left to match Predictors */}
+      {/* Floating button */}
       <button
         onClick={() => setOpen(true)}
         className="fixed bottom-6 left-6 z-[60] rounded-full bg-accent p-3 shadow-lg hover:bg-accent/90 text-white"
@@ -217,7 +243,7 @@ def run_logistic_regression(dataset, params):
                     {/* Header */}
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                       <Dialog.Title className="text-lg font-semibold text-gray-900">
-                        Models — Dev Notes
+                        Models — Dev Notes (for Instructor)
                       </Dialog.Title>
                       <button
                         onClick={() => setOpen(false)}
@@ -230,87 +256,133 @@ def run_logistic_regression(dataset, params):
 
                     {/* Body */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-6 text-sm">
-                      <h3 className="text-base font-semibold text-gray-900">
-                        Page-Level Model Runner — Notes
-                      </h3>
-
-                      <Section title="Goal">
-                        Provide a unified UI to configure and execute multiple
-                        ML models on a cleaned dataset, and return typed results
-                        (metrics, plots, summaries) suitable for rendering in
-                        React.
+                      <Section title="What this page does">
+                        The <strong>Models</strong> page lets me choose a
+                        cleaned dataset, pick a model (Random Forest, Logistic
+                        Regression, PCA+KMeans, Sentiment, Anomaly Detection,
+                        Time Series), and run it. The hard part here was{" "}
+                        <strong>advising which dataset fits which model</strong>
+                        using <em>multiple datasets’ metadata at once</em>.
                       </Section>
 
-                      <Section title="Contract (frontend → backend)" as="ul">
+                      <Section title="Challenges">
+                        Initially, Databot only saw the selected dataset. To
+                        give useful advice (e.g., “Use dataset A with target X
+                        for logistic regression”), it needed a
+                        <strong> cross-dataset view</strong> of metadata
+                        (dtypes, unique counts, text/categorical mix). I added a
+                        small “advisor” API that aggregates cleaned dataset
+                        metadata and returns a shortlist with badges and target
+                        candidates. Then I wired Databot to consult that
+                        shortlist when the user asks model-selection questions
+                        on this page.
+                      </Section>
+
+                      <Section title="What I built (high level)" as="ol">
                         <li>
-                          <strong>Endpoint:</strong>{" "}
-                          <code className="font-mono">
-                            POST /api/models/run
-                          </code>
+                          <strong>Advisor API (FastAPI):</strong> returns a
+                          ranked list of cleaned datasets with badges (
+                          <code>mostly_numeric</code>,{" "}
+                          <code>categorical_features</code>,{" "}
+                          <code>text_features</code>), signals (counts), and
+                          likely target columns (binary/multiclass).
                         </li>
                         <li>
-                          <strong>Payload:</strong>{" "}
-                          <code className="font-mono">{`{ dataset_id, model, params }`}</code>
+                          <strong>Databot glue on /models:</strong> detects user
+                          intent (logistic vs multiclass vs cluster), calls the
+                          advisor with a timeout, shows a compact shortlist,
+                          then prepends it to the LLM prompt with instructions
+                          to pick exactly one dataset + target and give 3 setup
+                          steps.
                         </li>
                         <li>
-                          <strong>Response:</strong> JSON typed by model (e.g.,
-                          classification report, confusion matrix, PCA variance,
-                          anomalies, image_base64)
+                          <strong>Badges in UI:</strong> small chips under each
+                          dataset name so users see the metadata signals at a
+                          glance.
                         </li>
                       </Section>
 
-                      <Section title="Frontend payload example">
+                      <Section title="Backend: advisor endpoint (FastAPI)">
+                        <CodeBlock language="python" dark code={beAdvisor} />
+                      </Section>
+
+                      <Section title="Frontend: detect task intent">
                         <CodeBlock
                           language="javascript"
                           dark
-                          code={fePayload}
+                          code={feDetectTask}
                         />
                       </Section>
 
-                      <Section title="Backend model dispatcher">
-                        <CodeBlock language="python" dark code={beSwitch} />
-                      </Section>
-
-                      <Section title="Packaging metrics (example: Logistic Regression)">
-                        <CodeBlock language="python" dark code={beMetrics} />
-                      </Section>
-
-                      <Section title="Example result JSON">
+                      <Section title="Frontend: advisor fetch with timeout">
                         <CodeBlock
-                          language="json"
-                          dark={false}
-                          code={exampleJson}
+                          language="javascript"
+                          dark
+                          code={feFetchAdvisor}
                         />
                       </Section>
 
-                      <Section title="Notes">
+                      <Section title="Frontend: shortlist summary + Databot prompt nudge">
+                        <CodeBlock
+                          language="javascript"
+                          dark
+                          code={feSummarize}
+                        />
+                        <div className="h-2" />
+                        <CodeBlock
+                          language="javascript"
+                          dark
+                          code={feAskDatabotBranch}
+                        />
+                      </Section>
+
+                      <Section title="Frontend: badges on dataset list">
+                        <CodeBlock language="javascript" dark code={feBadges} />
+                      </Section>
+
+                      <Section title="How Databot uses this">
+                        On the <code>/models</code> route, Databot first shows
+                        the advisor’s shortlist (so the user sees the options),
+                        then the LLM answers with a{" "}
+                        <strong>single recommendation</strong> and{" "}
+                        <strong>3 setup steps</strong>
+                        (e.g., imputation/encoding/validation). This gives
+                        actionable guidance without the user needing to inspect
+                        every dataset manually.
+                      </Section>
+
+                      <Section title="Limitations / next step">
                         <ul className="list-disc list-inside space-y-1">
                           <li>
-                            <strong>PCA+KMeans:</strong> returns{" "}
-                            <code>pca_variance_ratio</code> and{" "}
-                            <code>cluster_counts</code>.
+                            For time constraints, I didn’t finish an
+                            auto-explain step where Databot reads the returned
+                            model metrics (e.g., confusion matrix, feature
+                            importances) and{" "}
+                            <strong>summarizes results in plain English</strong>
+                            . If I had more time, I’d add that as a follow-up
+                            prompt using the model run JSON.
                           </li>
                           <li>
-                            <strong>RandomForest:</strong> returns{" "}
-                            <code>feature_importances</code>; consider limiting
-                            top-k for UI.
-                          </li>
-                          <li>
-                            <strong>TimeSeries:</strong> validates{" "}
-                            <code>date_column|value_column</code>; errors if not
-                            provided.
-                          </li>
-                          <li>
-                            <strong>Sentiment:</strong> expects a text column;
-                            returns <code>sentiment_counts</code> + sample
-                            results.
-                          </li>
-                          <li>
-                            <strong>Error paths</strong> are normalized so the
-                            UI can map common issues (e.g., missing target,
-                            empty dataset).
+                            Advisor is heuristic (simple signals from metadata).
+                            It works well for this class project size (≤20
+                            datasets).
                           </li>
                         </ul>
+                      </Section>
+
+                      <Section title="Operational note (GPU)">
+                        ⚡ GPU inference is{" "}
+                        <strong>available by request</strong> (I manually enable
+                        it for demos). The page includes a “Request GPU Access”
+                        button that opens an email; responses may be delayed.
+                      </Section>
+
+                      <Section title="Takeaway">
+                        Getting Databot to advise usefully required{" "}
+                        <strong>multi-dataset context</strong>. Once I built a
+                        small advisor and passed its summary into the chat
+                        prompt on this page, the recommendations became concrete
+                        (dataset + target + steps). That was the main unlock.
                       </Section>
                     </div>
                     {/* /Body */}

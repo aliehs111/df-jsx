@@ -15,6 +15,11 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from pydantic import BaseModel
 import logging
 import os
@@ -120,37 +125,153 @@ def run_model_random_forest(df: pd.DataFrame, target_column, n_estimators=100, m
         "image_base64": img_base64,
     }
 
+def _to_native(obj):
+    """Recursively convert NumPy types/arrays to plain Python so FastAPI can JSON-encode."""
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, (np.ndarray,)):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {str(k): _to_native(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_native(v) for v in obj]
+    return obj
+
+
 def run_model_logistic_regression(df: pd.DataFrame, target_column, C=1.0):
     if target_column not in df.columns:
         raise ValueError(f"Missing '{target_column}' column.")
-    y = df[target_column].dropna()
-    X = df.select_dtypes(include=["int64", "float64"]).drop(columns=[target_column], errors="ignore").dropna()
-    y = y.loc[X.index]
-    lr = LogisticRegression(C=C, max_iter=1000, random_state=42)
-    lr.fit(X, y)
-    preds = lr.predict(X)
-    probs = lr.predict_proba(X)
-    report = classification_report(y, preds, output_dict=True)
-    conf_mat = confusion_matrix(y, preds)
-    fig, ax = plt.subplots(figsize=(6, 4))
-    if probs.shape[1] == 2:
-        fpr, tpr, _ = roc_curve(y, probs[:, 1])
+
+    # -----------------------------
+    # 1) Target-only NA filter
+    # -----------------------------
+    y = df[target_column]
+    mask = y.notna()
+    y = y[mask]
+
+    # Numeric features (incl. ints/floats); drop target if numeric
+    num_cols = list(df.select_dtypes(include=["int64", "float64"]).columns)
+    if target_column in num_cols:
+        num_cols.remove(target_column)
+
+    # A few low-cardinality categoricals (safe one-hot)
+    cat_candidates = df.select_dtypes(include=["object", "category", "bool"]).columns.tolist()
+    if target_column in cat_candidates:
+        cat_candidates.remove(target_column)
+    cat_cols = [c for c in cat_candidates if 2 <= df[c].nunique(dropna=True) <= 20][:5]
+
+    if not num_cols and not cat_cols:
+        raise ValueError("No usable features after filtering numeric/categorical columns.")
+
+    X = df.loc[mask, num_cols + cat_cols].copy()
+
+    # Must still have >= 2 classes after filtering
+    classes = np.unique(y)
+    if len(classes) < 2:
+        raise ValueError(f"Target '{target_column}' has <2 classes after target filtering.")
+
+    # -----------------------------
+    # 2) Stratified split
+    # -----------------------------
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=y, random_state=42
+    )
+
+    # -----------------------------
+    # 3) Pipeline: impute + scale/encode + LR
+    # -----------------------------
+    pre = ColumnTransformer(
+        transformers=[
+            ("num", Pipeline([
+                ("impute", SimpleImputer(strategy="median")),
+                ("scale", StandardScaler()),
+            ]), num_cols if num_cols else []),
+            ("cat", Pipeline([
+                ("impute", SimpleImputer(strategy="most_frequent")),
+                ("ohe", OneHotEncoder(handle_unknown="ignore", drop="if_binary")),
+            ]), cat_cols if cat_cols else []),
+        ],
+        remainder="drop",
+        sparse_threshold=0.0,
+    )
+
+    lr = LogisticRegression(
+        C=C,
+        max_iter=2000,
+        solver="lbfgs",
+        multi_class="auto",
+        class_weight="balanced",
+        random_state=42,
+    )
+
+    pipe = Pipeline([("prep", pre), ("clf", lr)])
+    pipe.fit(X_train, y_train)
+
+    preds = pipe.predict(X_test)
+    probs = pipe.predict_proba(X_test) if hasattr(pipe, "predict_proba") else None
+
+    # Metrics
+    report = classification_report(y_test, preds, output_dict=True)
+    conf_mat = confusion_matrix(y_test, preds, labels=np.unique(y_test))
+
+    # -----------------------------
+    # 4) Plot: ROC if binary else Confusion Matrix
+    # -----------------------------
+    fig, ax = plt.subplots(figsize=(6, 4), dpi=120)
+    uniq = np.unique(y_test)
+
+    if probs is not None and len(uniq) == 2 and probs.shape[1] >= 2:
+        # Align y_test to 0/1 in the same order as predict_proba columns (pipe.classes_)
+        le = LabelEncoder().fit(pipe.classes_)
+        y_bin = le.transform(y_test)  # 0/1
+        # positive class is index 1
+        pos_idx = 1
+        fpr, tpr, _ = roc_curve(y_bin, probs[:, pos_idx])
         roc_auc = auc(fpr, tpr)
         ax.plot(fpr, tpr, lw=2, label=f"AUC = {roc_auc:.2f}")
+        ax.plot([0, 1], [0, 1], lw=1, linestyle="--")
+        ax.set_xlabel("False Positive Rate")
+        ax.set_ylabel("True Positive Rate")
+        ax.set_title("ROC Curve")
         ax.legend(loc="lower right")
+    else:
+        cm = np.nan_to_num(conf_mat.astype(float))
+        im = ax.imshow(cm, aspect="auto", vmin=0)
+        for i in range(cm.shape[0]):
+            for j in range(cm.shape[1]):
+                ax.text(j, i, int(cm[i, j]), ha="center", va="center", fontsize=9)
+        ax.set_xlabel("Predicted")
+        ax.set_ylabel("Actual")
+        ax.set_xticks(range(len(uniq)))
+        ax.set_yticks(range(len(uniq)))
+        ax.set_xticklabels(uniq, rotation=45, ha="right")
+        ax.set_yticklabels(uniq)
+        ax.set_title("Confusion Matrix")
+
     buf = io.BytesIO()
     plt.tight_layout()
-    plt.savefig(buf, format="png")
-    plt.close(fig)
+    fig.savefig(buf, format="png", bbox_inches="tight")
     buf.seek(0)
-    img_base64 = base64.b64encode(buf.read()).decode("utf-8")
-    return {
-        "input_shape": list(df.shape),
+    image_base64 = base64.b64encode(buf.read()).decode("utf-8")
+    plt.close(fig)
+
+    # Coefficients (multiclass: n_classes x n_features_after_transform)
+    coef = pipe.named_steps["clf"].coef_
+
+    payload = {
+        "model": "LogisticRegression",
+        "input_shape": [int(v) for v in list(df.shape)],
+        "class_counts": {str(k): int(v) for k, v in pd.Series(y_test).value_counts().sort_index().items()},
         "classification_report": report,
         "confusion_matrix": conf_mat.tolist(),
-        "coefficients": lr.coef_.tolist(),
-        "image_base64": img_base64,
+        "coefficients": coef.tolist(),
+        "image_base64": image_base64,
     }
+    return _to_native(payload)
+
+
 
 # -----------------------
 # GPU (Northflank)

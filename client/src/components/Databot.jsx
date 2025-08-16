@@ -93,13 +93,79 @@ export default function Databot({ selectedDataset }) {
     }
   }, [location.pathname]);
 
+  // --- Models page advisor helpers ---
+  function detectTaskFromQuestion(q) {
+    const s = (q || "").toLowerCase();
+    const mentionsLogistic = /(logistic|sigmoid)/.test(s);
+    const mentionsRF = /(random forest|rf|multiclass|multi-class)/.test(s);
+    const mentionsCluster = /(cluster|clustering|kmeans|k-means|pca)/.test(s);
+    const mentionsBinary = /\bbinary\b|\byes\b|\bno\b|\btrue\b|\bfalse\b/.test(
+      s
+    );
+
+    // Disambiguation: both logistic + RF mentioned
+    if (mentionsLogistic && mentionsRF) {
+      return mentionsBinary ? "logistic" : "multiclass";
+    }
+
+    if (mentionsLogistic) return "logistic";
+    if (mentionsRF) return "multiclass";
+    if (mentionsCluster) return "cluster";
+    return null;
+  }
+
+  async function fetchWithTimeout(url, options = {}, ms = 4000) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), ms);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  async function fetchAdvisor(API_BASE, task) {
+    const url = `${API_BASE}/api/databot/cleaned_datasets/recommendations?task=${encodeURIComponent(
+      task
+    )}`;
+    const res = await fetchWithTimeout(
+      url,
+      { method: "GET", credentials: "include" },
+      4000
+    );
+    if (!res.ok) throw new Error(`advisor ${res.status}`);
+    return res.json();
+  }
+
+  function summarizeAdvisorResult(advisorJson) {
+    const items = advisorJson?.items || [];
+    if (!items.length) return "Advisor: No matching cleaned datasets found.";
+
+    const lines = items.slice(0, 8).map((it) => {
+      const badges = (it.badges || []).slice(0, 3).join(", ");
+      const why = (it.why || [])[0] || "";
+      const b = it.candidates?.binary?.slice?.(0, 2) || [];
+      const m = it.candidates?.multiclass?.slice?.(0, 2) || [];
+      const cand = b.length
+        ? ` (binary: ${b.join(", ")})`
+        : m.length
+        ? ` (multiclass: ${m.join(", ")})`
+        : "";
+
+      return `• ${it.title}${badges ? ` — [${badges}]` : ""}${
+        why ? ` — ${why}` : ""
+      }${cand}`;
+    });
+
+    return [`Advisor results for task "${advisorJson.task}":`, ...lines].join(
+      "\n"
+    );
+  }
+
   const askDatabot = async (e) => {
     e.preventDefault();
     if (!input.trim()) return;
-    // Don't allow sends on Predictors until we have predictor context
-    if (isPredictors && !hasPredictorContext) {
-      return;
-    }
+    if (isPredictors && !hasPredictorContext) return;
 
     const userMessage = { role: "user", content: input };
     setMessages((prev) => [...prev, userMessage]);
@@ -114,76 +180,116 @@ export default function Databot({ selectedDataset }) {
       let url = `${API_BASE}/api/databot/query`;
       let payload;
 
-      if (isAppInfoRoute && ctx?.app_info_text) {
-        url = `${API_BASE}/api/databot/query_welcome`;
-        question = `App Info:\n${ctx.app_info_text}\n\nQuestion: ${question}`;
-        payload = { question, app_info: ctx.app_info_text };
-      } else if (isPredictors && botType === "modelbot" && ctx) {
-        let header = "";
-        if (ctx?.feature?.startsWith?.("college_earnings")) {
-          const drivers =
-            Array.isArray(ctx?.result?.drivers) && ctx.result.drivers.length
-              ? `Drivers: ${ctx.result.drivers
-                  .map((d) => `${d.direction}${d.factor}`)
-                  .join(", ")}`
-              : null;
-          const pct =
-            typeof ctx?.result?.prob === "number"
-              ? Math.round(ctx.result.prob * 100)
-              : null;
-          header = [
-            "Context: College Earnings — 5y ≥ $75k.",
-            `Inputs: CIP4=${ctx?.inputs?.cip4 || "?"}, Degree=${
-              ctx?.inputs?.degree_level || "?"
-            }, State=${ctx?.inputs?.state || "?"}${
-              ctx?.inputs?.public_private
-                ? `, Type=${ctx.inputs.public_private}`
-                : ""
-            }`,
-            pct != null && ctx?.result?.bucket
-              ? `Score: ${ctx.result.bucket} (${pct}%).`
-              : null,
-            drivers,
-          ]
-            .filter(Boolean)
-            .join("\n");
-        } else if (ctx?.feature === "accessibility_risk") {
-          const confusion =
-            Array.isArray(ctx?.result?.confusion_sources) &&
-            ctx.result.confusion_sources.length
-              ? `Confusion: ${ctx.result.confusion_sources
-                  .map((s) => `${s.type}: ${s.evidence?.join(", ")}`)
-                  .join(" | ")}`
-              : null;
-          const pct =
-            typeof ctx?.result?.prob === "number"
-              ? Math.round(ctx.result.prob * 100)
-              : null;
-          header = [
-            "Context: Accessibility Misinterpretation Risk.",
-            `Audience: ${ctx?.inputs?.audience || "?"}, Medium: ${
-              ctx?.inputs?.medium || "?"
-            }, Intent: ${ctx?.inputs?.intent ?? "—"}`,
-            pct != null && ctx?.result?.bucket
-              ? `Score: ${ctx.result.bucket} (${pct}%).`
-              : null,
-            confusion,
-            ctx?.result?.rewrite ? `Rewrite ≤15: ${ctx.result.rewrite}` : null,
-          ]
-            .filter(Boolean)
-            .join("\n");
-        } else {
-          header = "Context: Unknown model.";
+      // --------------------- BEGIN: Models page advisor branch ---------------------
+      let usedAdvisor = false;
+      if (location.pathname === "/models") {
+        const task = detectTaskFromQuestion(question);
+        if (task) {
+          try {
+            const advisor = await fetchAdvisor(API_BASE, task);
+            const summary = summarizeAdvisorResult(advisor);
+
+            // Prepend summary to the message we send to your existing welcome endpoint
+            url = `${API_BASE}/api/databot/query_welcome`;
+            question = `${summary}
+
+System: From these advisor results, recommend the single best dataset and, if supervised, the exact target column to use. Then give 3 setup steps (cleaning/encoding/validation) specific to that dataset. Be concise (<120 words).
+
+User question: ${userMessage.content}`;
+
+            payload = { question, app_info: appInfo };
+            usedAdvisor = true;
+          } catch (e) {
+            // If advisor fails, fall back gracefully to your normal welcome path on /models
+            url = `${API_BASE}/api/databot/query_welcome`;
+            question = `User asked about dataset-model fit on the Models page.\n(Advisor failed: ${
+              e?.message || e
+            })\n\nQuestion: ${userMessage.content}`;
+            payload = { question, app_info: appInfo };
+            usedAdvisor = true;
+          }
         }
-        question = `${header}\n\nUser: ${question}`;
-        payload = { question, bot_type: effectiveBotType, model_context: ctx };
-      } else {
-        payload = {
-          question,
-          bot_type: effectiveBotType,
-          ...(datasetId != null ? { dataset_id: datasetId } : {}),
-          app_info: appInfo,
-        };
+      }
+      // ---------------------- Models page advisor branch ----------------------
+
+      if (!usedAdvisor) {
+        if (isAppInfoRoute && ctx?.app_info_text) {
+          url = `${API_BASE}/api/databot/query_welcome`;
+          question = `App Info:\n${ctx.app_info_text}\n\nQuestion: ${question}`;
+          payload = { question, app_info: ctx.app_info_text };
+        } else if (isPredictors && botType === "modelbot" && ctx) {
+          let header = "";
+          if (ctx?.feature?.startsWith?.("college_earnings")) {
+            const drivers =
+              Array.isArray(ctx?.result?.drivers) && ctx.result.drivers.length
+                ? `Drivers: ${ctx.result.drivers
+                    .map((d) => `${d.direction}${d.factor}`)
+                    .join(", ")}`
+                : null;
+            const pct =
+              typeof ctx?.result?.prob === "number"
+                ? Math.round(ctx.result.prob * 100)
+                : null;
+            header = [
+              "Context: College Earnings — 5y ≥ $75k.",
+              `Inputs: CIP4=${ctx?.inputs?.cip4 || "?"}, Degree=${
+                ctx?.inputs?.degree_level || "?"
+              }, State=${ctx?.inputs?.state || "?"}${
+                ctx?.inputs?.public_private
+                  ? `, Type=${ctx.inputs.public_private}`
+                  : ""
+              }`,
+              pct != null && ctx?.result?.bucket
+                ? `Score: ${ctx.result.bucket} (${pct}%).`
+                : null,
+              drivers,
+            ]
+              .filter(Boolean)
+              .join("\n");
+          } else if (ctx?.feature === "accessibility_risk") {
+            const confusion =
+              Array.isArray(ctx?.result?.confusion_sources) &&
+              ctx.result.confusion_sources.length
+                ? `Confusion: ${ctx.result.confusion_sources
+                    .map((s) => `${s.type}: ${s.evidence?.join(", ")}`)
+                    .join(" | ")}`
+                : null;
+            const pct =
+              typeof ctx?.result?.prob === "number"
+                ? Math.round(ctx.result.prob * 100)
+                : null;
+            header = [
+              "Context: Accessibility Misinterpretation Risk.",
+              `Audience: ${ctx?.inputs?.audience || "?"}, Medium: ${
+                ctx?.inputs?.medium || "?"
+              }, Intent: ${ctx?.inputs?.intent ?? "—"}`,
+              pct != null && ctx?.result?.bucket
+                ? `Score: ${ctx.result.bucket} (${pct}%).`
+                : null,
+              confusion,
+              ctx?.result?.rewrite
+                ? `Rewrite ≤15: ${ctx.result.rewrite}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join("\n");
+          } else {
+            header = "Context: Unknown model.";
+          }
+          question = `${header}\n\nUser: ${question}`;
+          payload = {
+            question,
+            bot_type: effectiveBotType,
+            model_context: ctx,
+          };
+        } else {
+          payload = {
+            question,
+            bot_type: effectiveBotType,
+            ...(datasetId != null ? { dataset_id: datasetId } : {}),
+            app_info: appInfo,
+          };
+        }
       }
 
       const res = await fetch(url, {

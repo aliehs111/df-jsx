@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from openai import OpenAI
 import os
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple, Literal, List
 
 from server.database import get_async_db
 from server.models import Dataset as DatasetModel
@@ -12,6 +12,230 @@ from pydantic import BaseModel
 
 router = APIRouter()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# ---------- Dataset Advisor (badges, scoring) ----------
+
+
+# ---------- Dataset Advisor (badges, scoring, candidates) ----------
+
+
+BADGE_LIST = {
+    "has_target",
+    "binary",
+    "multiclass",
+    "high_dimensional",
+    "categorical_features",
+    "text_features",
+    "mostly_numeric",
+}
+
+def _norm_dtype(s: str | None) -> str:
+    if not s:
+        return ""
+    s = str(s).lower()
+    if s in {"int", "int32", "int64", "integer"}:
+        return "int64"
+    if s in {"float", "float32", "float64", "double"}:
+        return "float64"
+    if s in {"str", "string", "object", "category", "categorical"}:
+        return "object"
+    if s in {"bool", "boolean"}:
+        return "bool"
+    if s in {"datetime", "date", "timestamp"}:
+        return "datetime"
+    return s
+
+def _safe_get_meta(cm: dict | None, col: str) -> dict:
+    if not isinstance(cm, dict) or not col:
+        return {}
+    meta = cm.get(col)
+    return meta if isinstance(meta, dict) else {}
+
+def _count_types(column_metadata: dict | None) -> Tuple[int, int, int, int]:
+    if not isinstance(column_metadata, dict):
+        return 0, 0, 0, 0
+    numeric_count = categorical_count = text_count = 0
+    for _, meta in column_metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        dt = _norm_dtype(meta.get("dtype"))
+        if dt in {"int64", "float64"}:
+            numeric_count += 1
+        elif dt in {"bool", "object"}:
+            n_unique = meta.get("n_unique")
+            if isinstance(n_unique, int) and n_unique > 50:
+                text_count += 1
+            else:
+                categorical_count += 1
+    total = len(column_metadata)
+    return numeric_count, categorical_count, text_count, total
+
+def _infer_candidate_targets(cm: dict | None) -> Dict[str, List[str]]:
+    """
+    Returns:
+      {
+        "binary": [colA, colB, ...],        # 2–3 uniques
+        "multiclass": [colX, colY, ...],    # 3–20 uniques
+      }
+    Heuristics are conservative and ignore high-cardinality.
+    """
+    out = {"binary": [], "multiclass": []}
+    if not isinstance(cm, dict):
+        return out
+    for col, meta in cm.items():
+        if not isinstance(meta, dict):
+            continue
+        dt = _norm_dtype(meta.get("dtype"))
+        # candidate targets are typically categorical/bool-ish
+        if dt not in {"object", "bool", "int64"}:
+            continue
+        n_unique = meta.get("n_unique")
+        if not isinstance(n_unique, int):
+            continue
+        # treat tiny-cardinality ints/objects as categorical labels
+        if 2 <= n_unique <= 3:
+            out["binary"].append(col)
+        if 3 <= n_unique <= 20:
+            out["multiclass"].append(col)
+    # de-dup overlap (e.g., n_unique == 3 goes to both; keep both)
+    return out
+
+def _compute_badges_and_suggestions(dataset) -> Tuple[List[str], Dict[str, int | float | bool], List[str], List[str], Dict[str, List[str]]]:
+    """
+    Returns: badges, signals, suggested_models, why, candidates
+    """
+    badges: List[str] = []
+    suggested: List[str] = []
+    why: List[str] = []
+
+    cm = dataset.column_metadata if hasattr(dataset, "column_metadata") else None
+    n_rows = getattr(dataset, "n_rows", None) or 0
+    n_columns = getattr(dataset, "n_columns", None) or (len(cm) if isinstance(cm, dict) else 0)
+    target_col = getattr(dataset, "target_column", None)
+
+    numeric_count, categorical_count, text_count, total_cols = _count_types(cm)
+    total_cols = n_columns or total_cols
+
+    # Candidates (even if no target is set)
+    candidates = _infer_candidate_targets(cm)
+
+    # has_target
+    has_target = bool(target_col) and isinstance(cm, dict) and target_col in cm
+    if has_target:
+        badges.append("has_target")
+
+    # class_count (if target set)
+    class_count = None
+    if has_target:
+        tmeta = _safe_get_meta(cm, target_col)
+        cu = tmeta.get("n_unique")
+        if isinstance(cu, int):
+            class_count = cu
+
+    # binary / multiclass (from target) — candidates handled later
+    if has_target and isinstance(class_count, int):
+        if class_count == 2:
+            badges.append("binary")
+        elif class_count > 2:
+            badges.append("multiclass")
+
+    # high_dimensional
+    if isinstance(total_cols, int) and total_cols >= 25:
+        badges.append("high_dimensional")
+
+    # categorical_features
+    if categorical_count >= 2:
+        badges.append("categorical_features")
+
+    # text_features
+    if text_count >= 1:
+        badges.append("text_features")
+
+    # mostly_numeric
+    mostly_numeric = (numeric_count / max(total_cols or 1, 1)) >= 0.7
+    if mostly_numeric:
+        badges.append("mostly_numeric")
+
+    # Suggested models
+    if "binary" in badges:
+        suggested.extend(["LogisticRegression", "RandomForest"])
+    elif "multiclass" in badges:
+        suggested.append("RandomForest")
+    if ("high_dimensional" in badges and "mostly_numeric" in badges) or not has_target:
+        if "PCA_KMeans" not in suggested:
+            suggested.append("PCA_KMeans")
+
+    # WHY bullets (at most 2)
+    if "binary" in badges:
+        why.append("Binary target → logistic fits")
+    if "multiclass" in badges:
+        why.append("Multiclass target (>2 classes)")
+    if not has_target and candidates["binary"]:
+        why.append(f"Has binary candidate columns: {', '.join(candidates['binary'][:2])}")
+    if not has_target and not candidates["binary"] and candidates["multiclass"]:
+        why.append(f"Has multiclass candidate columns: {', '.join(candidates['multiclass'][:2])}")
+    if "mostly_numeric" in badges and len(why) < 2:
+        why.append("Mostly numeric features")
+    if "high_dimensional" in badges and len(why) < 2:
+        why.append("High dimensional feature space")
+
+    signals = {
+        "numeric_count": numeric_count,
+        "categorical_count": categorical_count,
+        "text_count": text_count,
+        "n_columns": total_cols,
+        "has_target": has_target,
+        "class_count": class_count if class_count is not None else None,
+        "high_dimensional": "high_dimensional" in badges,
+        "mostly_numeric": mostly_numeric,
+        "n_rows": n_rows,
+    }
+
+    def _dedupe(seq: List[str]) -> List[str]:
+        seen = set()
+        out = []
+        for s in seq:
+            if s not in seen:
+                seen.add(s)
+                out.append(s)
+        return out
+
+    badges = _dedupe([b for b in badges if b in BADGE_LIST])
+    suggested = _dedupe(suggested)
+    why = _dedupe(why)[:2]
+
+    return badges, signals, suggested, why, candidates
+
+def _score_for_task(task: Literal["logistic", "multiclass", "cluster"], badges: List[str], candidates: Dict[str, List[str]]) -> int:
+    s = 0
+    if task == "logistic":
+        # Hard preference if real target is binary OR candidate exists
+        if ("has_target" in badges and "binary" in badges) or (candidates.get("binary")):
+            s += 10
+        if "mostly_numeric" in badges:
+            s += 3
+        if "categorical_features" in badges:
+            s += 2
+        if "high_dimensional" not in badges:
+            s += 1
+    elif task == "multiclass":
+        if ("has_target" in badges and "multiclass" in badges) or (candidates.get("multiclass")):
+            s += 10
+        if "categorical_features" in badges:
+            s += 3
+        if "mostly_numeric" in badges:
+            s += 2
+        if "high_dimensional" not in badges:
+            s += 1
+    elif task == "cluster":
+        if "high_dimensional" in badges:
+            s += 3
+        if "mostly_numeric" in badges:
+            s += 3
+        if "text_features" not in badges:
+            s += 1
+    return s
+
 
 class DatasetState(BaseModel):
     dataset_id: int
@@ -261,4 +485,66 @@ async def save_state(dataset_id: int, state: DatasetState):
     dataset_states[dataset_id] = state.options
     return {"status": "ok"}
 
+@router.get("/cleaned_datasets/recommendations")
+async def cleaned_datasets_recommendations(
+    task: Literal["logistic", "multiclass", "cluster"] = Query(..., description="Which modeling task to recommend for"),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """
+    Ranked list of cleaned datasets for the given task.
+    Falls back to candidate target inference when target_column isn't set.
+    """
+    # Adjust the "cleaned" condition to whatever you actually use
+    q = await db.execute(
+        select(DatasetModel).where(
+            getattr(DatasetModel, "has_cleaned_data", True) == True  # noqa: E712
+        )
+    )
+    rows = q.scalars().all()
 
+    items = []
+    for ds in rows:
+        badges, signals, suggested_models, why, candidates = _compute_badges_and_suggestions(ds)
+
+        score = _score_for_task(task, badges, candidates)
+
+        # For supervised tasks, allow through if either a proper target matches OR we have candidates
+        if task == "logistic":
+            if not (("has_target" in badges and "binary" in badges) or candidates.get("binary")):
+                continue
+        elif task == "multiclass":
+            if not (("has_target" in badges and "multiclass" in badges) or candidates.get("multiclass")):
+                continue
+        # cluster: keep everything, rely on score
+
+        updated_at = getattr(ds, "updated_at", None) or getattr(ds, "uploaded_at", None)
+        updated_iso = updated_at.isoformat() if hasattr(updated_at, "isoformat") else str(updated_at) if updated_at else None
+
+        items.append({
+            "dataset_id": ds.id,
+            "title": getattr(ds, "title", f"Dataset {ds.id}"),
+            "n_rows": getattr(ds, "n_rows", None),
+            "n_columns": getattr(ds, "n_columns", None),
+            "target_column": getattr(ds, "target_column", None),
+            "badges": badges,
+            "suggested_models": suggested_models,
+            "why": why,
+            "signals": signals,
+            "candidates": candidates,   # <-- helpful to show suggested target columns
+            "updated_at": updated_iso,
+            "_score": score,
+        })
+
+    # Sort: score desc → updated_at desc → id asc
+    def _sort_key(it: dict):
+        return (
+            it.get("_score", 0),
+            it.get("updated_at") or "",
+            -int(it.get("dataset_id") or 0),
+        )
+
+    items.sort(key=_sort_key, reverse=True)
+    for it in items:
+        it.pop("_score", None)
+
+    return {"task": task, "items": items}
