@@ -307,7 +307,7 @@ export default function DataCleaning() {
             </tr>
           </thead>
           <tbody>
-            {data.slice(0, 10).map((row, i) => (
+            {data.slice(0, 5).map((row, i) => (
               <tr key={i} className="hover:bg-gray-200">
                 {Object.values(row).map((val, j) => (
                   <td key={j} className="border px-2 py-1">
@@ -319,7 +319,7 @@ export default function DataCleaning() {
           </tbody>
         </table>
         {data.length > 10 && (
-          <p className="mt-2 text-xs text-gray-600">Showing first 10 rows.</p>
+          <p className="mt-2 text-xs text-gray-600">Showing first 5 rows.</p>
         )}
       </div>
     </div>

@@ -283,54 +283,176 @@ def run_college_earnings(params):
                       {tab === "access" && (
                         <>
                           <h3 className="text-base font-semibold text-gray-900">
-                            Accessibility Predictor — Development Notes
+                            Clarity Predictor (Beta) — Dev Notes
                           </h3>
 
-                          <Section title="Goal">
-                            Estimate <strong>misinterpretation risk</strong> for
-                            a user-facing message.
+                          <Section title="How it works">
+                            This isn’t a trained ML model yet. I started with
+                            some testing json files to get the logic to work. I
+                            wanted to train a model but could not find the right
+                            data to use. So I came up with the idea that since
+                            the open AI chat models area already trained on this
+                            topic, I could just slot in a route to complete the
+                            response. The backend runs a deterministic rules
+                            scorer (idioms, jargon, vague time, polysemy,
+                            numbers/dates) to estimate{" "}
+                            <strong>misinterpretation risk</strong>, and OpenAI
+                            (Databot) generates the rewrite.
+                            <div className="mt-2 rounded-md bg-sky-50 border border-sky-200 px-3 py-2 text-sky-900 text-xs">
+                              Flow (today): UI →{" "}
+                              <code>/api/predictors/infer</code> (rules) → UI
+                              calls
+                              <code>/api/databot/query</code> (OpenAI) →
+                              overwrite <code>rewrite_15_words</code> with the
+                              LLM answer.
+                            </div>
+                          </Section>
+
+                          <Section title="Why the probability skews Low">
+                            The score is a weighted count of flags divided by
+                            token count, passed through a conservative sigmoid
+                            (center≈0.35, k≈6). For most short messages, density
+                            is small → <em>base</em> stays low. I kept the
+                            probability to show trend/bucketing and for future
+                            calibration. Ideally, I want the score to be learned
+                            from data (so Medium/High triggers behave more
+                            naturally).
+                          </Section>
+
+                          <Section title="Future plan (real model)">
+                            <ul>
+                              <li>
+                                Assemble labeled data (plain vs. complex,
+                                idioms/jargon/time ambiguity).
+                              </li>
+                              <li>
+                                Train a small classifier (TF-IDF + metadata,
+                                Logistic Regression + calibration).
+                              </li>
+                              <li>
+                                Serve via FastAPI behind the same API; keep
+                                rule-based explanations.
+                              </li>
+                              <li>
+                                Tune thresholds so buckets reflect reality (not
+                                “always Low”).
+                              </li>
+                            </ul>
                           </Section>
 
                           <Section title="Inputs">
-                            Text, audience, medium, (optional) intent,
-                            thresholds, sensitivity, audience_soften.
+                            Text, audience, medium, (optional) intent. Optional
+                            overrides: sensitivity, thresholds (low/high),
+                            audience_soften, and enabled categories.
                           </Section>
 
                           <Section title="Output">
-                            Probability, risk bucket, top confusion sources,
-                            ≤15-word rewrite.
+                            Probability, risk bucket, confusion sources
+                            (evidence + notes), and a ≤15-word rewrite
+                            (LLM-polished).
                           </Section>
 
-                          <div className="rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-amber-900 text-xs">
-                            <span className="font-semibold">Flow:</span> UI →{" "}
-                            <code className="font-mono">
-                              POST /api/predictors/infer
-                            </code>{" "}
-                            → Python predictor → JSON → UI
-                          </div>
-
-                          <Section title="Snippet — Frontend request (payload & fetch)">
+                          <Section title="Snippet — Frontend (actual flow)">
                             <CodeBlock
-                              code={accessFrontend}
                               language="javascript"
                               dark
+                              code={`// 1) Call the rules-based scorer
+const res = await fetch(\`\${API_BASE}/api/predictors/infer\`, {
+  method: "POST",
+  headers: {"Content-Type":"application/json"},
+  body: JSON.stringify({
+    model: "accessibility_risk",
+    params: { text, audience, medium, intent: intent || null },
+    overrides: includeOverrides ? {
+      sensitivity: Number(sensitivity),
+      audience_soften: Number(audienceSoften),
+      density_thresholds: { low: Number(low), high: Number(high) },
+      enable_categories: Object.entries(enabled).filter(([,v]) => v).map(([k]) => k)
+    } : undefined
+  })
+});
+const data = await res.json();
+const localRewrite = data.rewrite_15_words;
+
+// 2) Ask Databot (OpenAI) to polish (overwrites local rewrite)
+const databotRes = await fetch(\`\${API_BASE}/api/databot/query\`, {
+  method: "POST",
+  headers: {"Content-Type":"application/json"},
+  credentials: "include",
+  body: JSON.stringify({
+    question: \`Rewrite the following text to be clear and concise for \${audience} via \${medium}, max 15 words: "\${text.trim()}"\`,
+    bot_type: "modelbot",
+    model_context: {
+      feature: "accessibility_risk",
+      inputs: { text: text.trim(), audience, medium, intent: intent || null },
+      result: {
+        prob: data.misinterpretation_probability,
+        bucket: data.risk_bucket,
+        confusion_sources: data.confusion_sources,
+        rewrite: localRewrite // (optional: seed Databot with local rewrite)
+      }
+    }
+  })
+});
+const databotData = await databotRes.json();
+data.llm_rewrite_15_words = (databotData.answer || "").trim();
+data.rewrite_15_words = data.llm_rewrite_15_words || localRewrite; // display LLM, fallback to local
+setResult(data);`}
                             />
                           </Section>
 
-                          <Section title="Snippet — Backend predictor core (Python)">
+                          <Section title="Snippet — Backend (rules core, no ML)">
                             <CodeBlock
-                              code={accessBackend}
                               language="python"
                               dark
+                              code={`def score_accessibility(params, overrides=None):
+    text = params.text.strip()
+    # 1) pattern hits
+    idioms = find_terms(text, RULES["idioms"])
+    jargon = find_terms(text, RULES["jargon"])
+    ambig  = find_terms(text, RULES["ambiguous_time"])
+    poly   = find_terms(text, RULES["polysemy"])
+    nums   = find_regex(text, RULES["numeracy_date"])
+
+    # 2) density → sigmoid
+    n_tokens = max(1, len(tokenize(text)))
+    cw = {"idioms":0.35,"jargon":0.35,"ambiguous_time":0.30,"polysemy":0.10,"numeracy_date":0.10}
+    density = (cw["idioms"]*len(idioms)+cw["jargon"]*len(jargon)+cw["ambiguous_time"]*len(ambig)+
+               cw["polysemy"]*len(poly)+cw["numeracy_date"]*len(nums)) / n_tokens
+    center, k = 0.35, 6.0
+    base = 1/(1+math.exp(-k*(density-center)))
+    prob = min(0.9, base)  # + audience soften
+
+    # 3) explanations + local rewrite
+    confusion = build_confusion_sources(idioms, jargon, ambig, poly, nums)
+    rewrite = rewrite_15(text, RULES.get("idiom_rewrites", {}))
+    bucket = bucket_from_prob(prob, RULES["density_thresholds"])
+    return PredictResponse(misinterpretation_probability=prob, risk_bucket=bucket,
+                           confusion_sources=confusion, rewrite_15_words=rewrite)`}
                             />
                           </Section>
 
-                          <Section title="Example output">
+                          <Section title="Example (UI shows LLM rewrite)">
                             <CodeBlock
-                              code={accessSample}
                               language="json"
                               dark={false}
+                              code={`{
+  "model": "accessibility_risk",
+  "version": "v1",
+  "misinterpretation_probability": 0.18,
+  "risk_bucket": "Low",
+  "confusion_sources": [{"type":"Idioms/Colloquialisms","evidence":["heads up"]}],
+  "rewrite_15_words": "Note: payment is due by September 15." // LLM-polished
+}`}
                             />
+                          </Section>
+
+                          <Section title="Why leave the probability in (for now)">
+                            Even if it’s conservative, the score provides
+                            continuity and a place to plug in a trained model
+                            later. I want to calibrate it (or replace it) once I
+                            have labeled data. Until then, it’s useful for
+                            bucketing and for Databot context.
                           </Section>
                         </>
                       )}
@@ -344,7 +466,9 @@ def run_college_earnings(params):
                           <Section title="Goal">
                             Predict median earnings of graduates using
                             institution, major (CIP4), degree level, state, and
-                            sector.
+                            sector. Specifically, predict the percent chance the
+                            graduate will make $75K annually 5 years after
+                            graduation.
                           </Section>
 
                           <Section title="Challenge" as="ul">

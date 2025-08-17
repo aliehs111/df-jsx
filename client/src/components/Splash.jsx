@@ -20,9 +20,8 @@ export default function Splash() {
 
         {/* Subtext */}
         <p className="mt-3 text-base sm:text-lg leading-relaxed text-neutralDark/80 max-w-xl mx-auto">
-          An academic experiment to develop an application, exploring ways to
-          teach about data analysis and machine learning with AI-driven
-          guidance, Databot, a tutor-style chatbot.
+          Home of Databot, providing guidance and answering questions about data
+          and machine learning.
         </p>
 
         {/* Actions */}
