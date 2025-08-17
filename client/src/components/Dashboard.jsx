@@ -4,7 +4,7 @@ import KPICards from "../components/KPICards";
 import RecentDatasets from "../components/RecentDatasets";
 import QuickActions from "../components/QuickActions";
 import newlogo500 from "../assets/newlogo500.png";
-
+import DevNotesDatabot from "../components/DevNotesDatabot.jsx";
 const logo = newlogo500;
 
 export default function Dashboard() {
@@ -90,40 +90,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Explainer video */}
-        <section className="rounded-xl bg-white p-6 shadow-sm ring-1 ring-black/5 flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-lg font-semibold">🎬 Explainer Video</h3>
-              <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 ring-1 ring-inset ring-blue-200">
-                Coming soon
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-gray-600">
-              A quick 2-minute video is coming soon!
-            </p>
-          </div>
-          <button
-            disabled
-            className="flex items-center space-x-2 rounded-md border px-4 py-2 text-sm bg-primary text-white opacity-70 cursor-not-allowed"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              className="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M14.752 11.168l-4.36-2.507A1 1 0 009 9.6v4.8a1 1 0 001.392.92l4.36-2.507a1 1 0 000-1.732z"
-              />
-            </svg>
-            <span>Play</span>
-          </button>
-        </section>
+        <DevNotesDatabot />
       </main>
     </div>
   );

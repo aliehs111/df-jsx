@@ -4,6 +4,8 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import newlogo500 from "../assets/newlogo500.png";
 import { ChatBubbleLeftEllipsisIcon } from "@heroicons/react/24/outline";
 import InsightsPanel from "./InsightsPanel";
+import MetalButton from "./MetalButton";
+import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 
 export default function DatasetDetail() {
   const { id } = useParams();
@@ -125,24 +127,64 @@ export default function DatasetDetail() {
   return (
     <div className="max-w-4xl mx-auto p-6 bg-white shadow-md rounded-md">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-2xl font-bold">{dataset.title}</h2>
-        <div className="flex items-center space-x-2">
-          {hasClean && (
-            <>
-              {/* <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
-                Processed
-              </span> */}
-              <button
+      <header className="relative overflow-hidden bg-gradient-to-r from-primary via-primary/90 to-secondary py-8 px-6 sm:px-12 shadow-md mb-8 rounded-xl">
+        {/* subtle glow */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-10 -right-10 h-44 w-44 rounded-full bg-white/10 blur-2xl"
+        />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          {/* Left: title + meta pills */}
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white drop-shadow-sm">
+                {dataset?.title ?? "Dataset"}
+              </h1>
+              {dataset?.id != null && (
+                <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white/90 ring-1 ring-white/25">
+                  ID #{dataset.id}
+                </span>
+              )}
+              {typeof dataset?.n_rows === "number" &&
+                typeof dataset?.n_columns === "number" && (
+                  <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white/90 ring-1 ring-white/25">
+                    {dataset.n_rows.toLocaleString()} rows × {dataset.n_columns}{" "}
+                    cols
+                  </span>
+                )}
+              {typeof dataset?.has_missing_values === "boolean" && (
+                <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white/90 ring-1 ring-white/25">
+                  {dataset.has_missing_values ? "Missing values" : "No missing"}
+                </span>
+              )}
+            </div>
+            {dataset?.description && (
+              <p className="mt-1 text-cyan-100/90 text-sm line-clamp-2">
+                {dataset.description}
+              </p>
+            )}
+          </div>
+
+          {/* Right: actions */}
+          <div className="flex items-center gap-2">
+            {hasClean ? (
+              <MetalButton
+                tone="steel"
                 onClick={downloadCleaned}
-                className="bg-gradient-to-r from-green-200 to-green-400 text-green-800 px-3 py-1 rounded-full text-sm shadow-sm hover:from-green-300 hover:to-green-500 transition-all duration-200 border border-green-100/50 hover:border-green-200/70 font-semibold"
+                className="rounded-full gap-2"
               >
+                <ArrowDownTrayIcon className="h-4 w-4" />
                 Download Cleaned Dataset
-              </button>
-            </>
-          )}
+              </MetalButton>
+            ) : (
+              <span className="rounded-full bg-white/10 px-3 py-1 text-sm text-white/90 ring-1 ring-white/20">
+                Not cleaned yet
+              </span>
+            )}
+          </div>
         </div>
-      </div>
+      </header>
+
       <p className="text-gray-600 mb-2">{dataset.description}</p>
       <p className="text-sm text-gray-400 mb-6">
         Uploaded: {new Date(dataset.uploaded_at).toLocaleString()}
@@ -190,25 +232,18 @@ export default function DatasetDetail() {
               </tbody>
             </table>
           </div>
-          <div className="flex space-x-2">
-            <button
-              onClick={() => fetchHeatmap("raw")}
-              className="bg-gradient-to-r from-amber-500 to-amber-700 text-white px-4 py-2 rounded-md shadow-md hover:from-amber-600 hover:to-amber-800 transition-all duration-200 border border-amber-300/50 hover:border-amber-400/70 font-semibold"
-            >
+          <div className="flex flex-wrap gap-2">
+            <MetalButton tone="gold" onClick={() => fetchHeatmap("raw")}>
               Heatmap
-            </button>
-            <button
-              onClick={() => fetchInsights("raw")}
-              className="bg-gradient-to-r from-blue-700 to-blue-900 text-white px-4 py-2 rounded-md shadow-md hover:from-blue-800 hover:to-blue-950 transition-all duration-200 border border-blue-300/50 hover:border-blue-400/70 font-semibold"
-            >
+            </MetalButton>
+
+            <MetalButton tone="blueSteel" onClick={() => fetchInsights("raw")}>
               Insights
-            </button>
-            <Link
-              to={`/datasets/${id}/clean?which=raw`}
-              className="bg-gradient-to-r from-blue-500 to-blue-700 text-white px-4 py-2 rounded-md shadow-md hover:from-blue-600 hover:to-blue-800 transition-all duration-200 border border-blue-200/50 hover:border-blue-300/70 font-semibold"
-            >
+            </MetalButton>
+
+            <MetalButton tone="steel" to={`/datasets/${id}/clean?which=raw`}>
               Preprocess
-            </Link>
+            </MetalButton>
           </div>
         </div>
 
@@ -262,25 +297,24 @@ export default function DatasetDetail() {
                 </table>
               )}
             </div>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => fetchHeatmap("cleaned")}
-                className="bg-gradient-to-r from-amber-500 to-amber-700 text-white px-4 py-2 rounded-md shadow-md hover:from-amber-600 hover:to-amber-800 transition-all duration-200 border border-amber-300/50 hover:border-amber-400/70 font-semibold"
-              >
+            <div className="flex flex-wrap gap-2">
+              <MetalButton tone="gold" onClick={() => fetchHeatmap("cleaned")}>
                 Heatmap
-              </button>
-              <button
+              </MetalButton>
+
+              <MetalButton
+                tone="blueSteel"
                 onClick={() => fetchInsights("cleaned")}
-                className="bg-gradient-to-r from-blue-700 to-blue-900 text-white px-4 py-2 rounded-md shadow-md hover:from-blue-800 hover:to-blue-950 transition-all duration-200 border border-blue-300/50 hover:border-blue-400/70 font-semibold"
               >
                 Insights
-              </button>
-              <Link
+              </MetalButton>
+
+              <MetalButton
+                tone="titanium"
                 to={`/datasets/${id}/clean?which=cleaned`}
-                className="bg-gradient-to-r from-blue-500 to-blue-700 text-white px-4 py-2 rounded-md shadow-md hover:from-blue-600 hover:to-blue-800 transition-all duration-200 border border-blue-200/50 hover:border-blue-300/70 font-semibold"
               >
                 Process Again
-              </Link>
+              </MetalButton>
             </div>
           </div>
         )}

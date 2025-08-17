@@ -28,23 +28,28 @@ export default function FeatureDropdowns() {
       <Panel title="Data Analysis">
         <ul className="list-disc list-inside text-sm text-gray-700 space-y-2">
           <li>
-            CSV upload with immediate preview plus dataframe <code>shape</code>{" "}
-            and <code>info()</code>
+            CSV upload → instant preview (<code>head()</code>),{" "}
+            <code>shape</code>, and <code>info()</code>; nothing is persisted
+            until you choose to save.
           </li>
           <li>
-            EDA utilities: correlation heatmap, summary stats, and column-type
-            detection
+            EDA tools: summary stats, missing-value report, correlation heatmap,
+            and automatic column type detection (numeric / categorical /
+            datetime).
           </li>
           <li>
-            Cleaning pipeline with before/after metrics (missing values,
-            normalization, categorical encoding)
+            Cleaning pipeline with before/after metrics: missing-value handling
+            (drop/fill mean/median/mode/custom), scaling
+            (normalize/standardize), and categorical encoding (one-hot/label).
           </li>
           <li>
             Dataset metadata tracking: row/column counts, null indicators,
-            column schemas
+            inferred schema, target column & selected features, plus a stepwise
+            processing log.
           </li>
           <li>
-            Downloadable cleaned datasets and generated visuals (served via S3)
+            Exports: cleaned dataset and generated visuals via presigned S3
+            downloads.
           </li>
         </ul>
       </Panel>
@@ -53,25 +58,30 @@ export default function FeatureDropdowns() {
       <Panel title="Modeling">
         <ul className="list-disc list-inside text-sm text-gray-700 space-y-2">
           <li>
-            <span className="font-medium">Predictors page</span> for specialized
-            tasks (e.g., accessibility risk scoring, sentiment)
+            <span className="font-medium">Predictors</span>: Accessibility
+            Misinterpretation Risk (OpenAI-backed responses to avoid GPU) and
+            College Earnings Potential (offline-trained in a notebook; artifacts
+            bundled with the repo).
           </li>
           <li>
-            <span className="font-medium">Models page</span> with pretrained
-            options: Random Forest, Logistic Regression, PCA&nbsp;+&nbsp;KMeans,
-            Anomaly Detection, Feature Importance
+            <span className="font-medium">Models (fit on your data)</span>:
+            Random Forest, Logistic Regression, PCA&nbsp;+&nbsp;KMeans, Anomaly
+            Detection, and Feature Importance.
           </li>
           <li>
-            Parameter tuning (estimators, depth, regularization) with instant
-            inference
+            Configurable parameters where appropriate (e.g.,{" "}
+            <code>n_estimators</code>, <code>max_depth</code>, <code>C</code>,{" "}
+            <code>n_components</code>, <code>k</code>) with immediate results
+            after fit.
           </li>
           <li>
-            Card-based results: metrics, sample predictions, cluster counts,
-            variance explained
+            Compute paths: CPU by default; GPU-backed workloads are
+            transparently offloaded to Northflank.
           </li>
           <li>
-            Interactive plot rendering; Matplotlib outputs served as static
-            images
+            Results in clean, card-based layouts—metrics, sample predictions,
+            cluster counts, variance explained—with plots rendered via
+            Matplotlib and served as static images.
           </li>
         </ul>
       </Panel>
@@ -152,6 +162,35 @@ export default function FeatureDropdowns() {
           <li>
             Lightweight, API-first integration so chatbot can evolve without UI
             rewrites
+          </li>
+        </ul>
+      </Panel>
+      {/* DevNotes */}
+      <Panel title="Development Notes">
+        <ul className="list-disc list-inside text-sm text-gray-700 space-y-2">
+          <li>
+            The green buttons on the bottom left of the pages open panels that
+            briefly describe some development notes and relevant code snippets.
+          </li>
+          <li>
+            To see the whole code base, please visit my repo at{" "}
+            <a
+              href="https://github.com/aliehs111/df-jsx"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 underline hover:text-blue-700"
+            >
+              github.com/aliehs111/df-jsx
+            </a>
+            .
+          </li>
+          <li>
+            If you have any questions or comments, please see the feedback
+            button on the bottom of this page to email me.
+          </li>
+          <li>
+            Understand that df.jsx is strictly an academic experiment and not
+            ready for prime time.
           </li>
         </ul>
       </Panel>

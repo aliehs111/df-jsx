@@ -37,10 +37,20 @@ export default function About() {
           {/* Intro */}
           <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
             <strong>df.jsx</strong>—short for "dataframes in React"—started as a
-            full-stack experiment project built to explore modern data science
-            workflows in a web environment. It demonstrates how a Python-based
-            analytics backend can integrate seamlessly with a React frontend for
-            real-time model inference and data visualization.
+            little experiment code to explore modern data science workflows in a
+            web environment. Nothing that hasn't been done before, but I wanted
+            to learn how a Python-based analytics backend can integrate with a
+            React frontend for real-time model inference and data visualization.
+          </p>
+          <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
+            The original intent was mostly about data preprossing and how the
+            choices one makes when preparing a dataset can greatly influence the
+            outcome of the analysis and model output, all the while having an
+            interactive chatbot teaching the user about this topic. While
+            developing the modeling functions and testing on larger dataset. It
+            was at that point I had to do a deep dive in to my options for MLOps
+            within my DevOps as Heroku does not offer GPU and will shut down any
+            processes taking more than 30 seconds.
           </p>
           {/* Purpose */}
           <section className="mb-8">
