@@ -4,6 +4,7 @@ import io
 import boto3
 import logging
 import base64
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
@@ -423,7 +424,19 @@ async def clean_preview(dataset_id: int, request: Request, db: AsyncSession = De
             ds.categorical_mappings = cat_maps
             buf = io.StringIO()
             df_cleaned.to_csv(buf, index=False)
-            ds.s3_key_cleaned = upload_bytes(buf.getvalue().encode("utf-8"), f"cleaned_{ds.filename}")
+            clean_key = f"cleaned/{dataset_id}/{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{ds.filename}"
+            s3.put_object(
+                Bucket=S3_BUCKET,
+                Key=clean_key,
+                Body=buf.getvalue().encode("utf-8"),
+                ContentType="text/csv; charset=utf-8",
+            )
+            ds.s3_key_cleaned = clean_key
+            ds.current_stage = "cleaned"
+            try:
+                ds.has_cleaned_data = True  # ok if column exists; harmless if not
+            except AttributeError:
+                pass
             await db.commit()
             await db.refresh(ds)
             alerts.append("Saved cleaned dataset to S3 and database.")
@@ -442,3 +455,6 @@ async def clean_preview(dataset_id: int, request: Request, db: AsyncSession = De
     }
     logger.info(f"Dataset {dataset_id} clean-preview response: {json.dumps(response, default=str)}")
     return response
+
+
+
