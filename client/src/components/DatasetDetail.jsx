@@ -21,21 +21,24 @@ export default function DatasetDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const hasClean = dataset?.has_cleaned_data || false;
+  const hasClean = Boolean(dataset?.s3_key_cleaned);
 
   useEffect(() => {
     const fetchDataset = async () => {
       try {
+        // Load dataset detail (raw by default; it also includes s3_key_cleaned if a cleaned file exists)
         const res = await fetch(`/api/datasets/${id}`, {
           credentials: "include",
         });
         if (res.status === 401) return navigate("/login");
         if (res.status === 404) return navigate("/datasets");
         if (!res.ok) throw new Error(`Error ${res.status}`);
+
         const data = await res.json();
         setDataset(data);
 
-        if (data.s3_key_cleaned && data.has_cleaned_data) {
+        // If a cleaned artifact exists, fetch its preview for the right-side panel
+        if (data.s3_key_cleaned) {
           try {
             const cleanRes = await fetch(
               `/api/datasets/${id}/insights?which=cleaned`,
@@ -50,7 +53,7 @@ export default function DatasetDetail() {
               throw new Error(err.detail || `Error ${cleanRes.status}`);
             }
             const cleanData = await cleanRes.json();
-            setCleanedPreview(cleanData.preview);
+            setCleanedPreview(cleanData.preview || []);
           } catch (err) {
             setCleanedPreviewError(err.message);
             console.error("Failed to load cleaned preview:", err);

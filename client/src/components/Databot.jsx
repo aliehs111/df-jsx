@@ -20,6 +20,11 @@ export default function Databot({ selectedDataset }) {
   const [botType, setBotType] = useState("databot");
   const [forcedContext, setForcedContext] = useState(null);
   const [hasPrimed, setHasPrimed] = useState(false);
+  const [cleaningContext, setCleaningContext] = useState({
+    pipelineSummary: "",
+    resultSummary: "",
+    lastAction: "",
+  });
 
   // Route flags
   const isAppInfoRoute =
@@ -62,6 +67,63 @@ export default function Databot({ selectedDataset }) {
     };
     window.addEventListener("dfjsx-set-bot-context", setCtx);
     return () => window.removeEventListener("dfjsx-set-bot-context", setCtx);
+  }, []);
+
+  useEffect(() => {
+    const onDatabotContext = (e) => {
+      const d = e.detail || {};
+      if (d.page !== "data-cleaning") return;
+
+      setIsOpen(true);
+
+      if (
+        d.intent === "options_updated" &&
+        (d.summary || d.selectedOpsSummary)
+      ) {
+        const plan = d.summary || d.selectedOpsSummary;
+        setCleaningContext((prev) => ({
+          ...prev,
+          pipelineSummary: plan || "",
+        }));
+        const initial =
+          typeof d.initial_message === "string" && d.initial_message.trim()
+            ? d.initial_message.trim()
+            : "I see you’re making changes to your dataset for preview. Would you like me to explain them?";
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: plan ? `${initial}\n\nPlan:\n${plan}` : initial,
+          },
+        ]);
+      }
+
+      if (d.intent === "preview_result" && d.result_summary) {
+        setCleaningContext((prev) => ({
+          ...prev,
+          resultSummary: d.result_summary || "",
+        }));
+      }
+    };
+
+    window.addEventListener("databot:context", onDatabotContext);
+    return () =>
+      window.removeEventListener("databot:context", onDatabotContext);
+  }, []);
+
+  // Capture the last concrete action label (e.g., "Filled NA in 'Mass' with median")
+  useEffect(() => {
+    const onCleaningAction = (e) => {
+      const a = e.detail?.action || "";
+      if (a) {
+        setIsOpen(true);
+        setCleaningContext((prev) => ({ ...prev, lastAction: a }));
+      }
+    };
+    window.addEventListener("dfjsx-cleaning-action", onCleaningAction);
+    return () =>
+      window.removeEventListener("dfjsx-cleaning-action", onCleaningAction);
   }, []);
 
   useEffect(() => {
@@ -183,24 +245,25 @@ export default function Databot({ selectedDataset }) {
       // --------------------- BEGIN: Models page advisor branch ---------------------
       let usedAdvisor = false;
       if (location.pathname === "/models") {
-        const task = detectTaskFromQuestion(question);
+        let task = detectTaskFromQuestion(question);
+
+        // (A) If we recognized a task (logistic/multiclass/cluster), keep your existing behavior
         if (task) {
           try {
             const advisor = await fetchAdvisor(API_BASE, task);
             const summary = summarizeAdvisorResult(advisor);
 
-            // Prepend summary to the message we send to your existing welcome endpoint
             url = `${API_BASE}/api/databot/query_welcome`;
             question = `${summary}
-
-System: From these advisor results, recommend the single best dataset and, if supervised, the exact target column to use. Then give 3 setup steps (cleaning/encoding/validation) specific to that dataset. Be concise (<120 words).
-
-User question: ${userMessage.content}`;
+      
+      System: From these advisor results, recommend the single best dataset and, if supervised, the exact target column to use. Then give 3 setup steps (cleaning/encoding/validation) specific to that dataset. Be concise (<120 words).
+      Restrict your answer to datasets listed above (these are the ones visible on the Models page).
+      
+      User question: ${userMessage.content}`;
 
             payload = { question, app_info: appInfo };
             usedAdvisor = true;
           } catch (e) {
-            // If advisor fails, fall back gracefully to your normal welcome path on /models
             url = `${API_BASE}/api/databot/query_welcome`;
             question = `User asked about dataset-model fit on the Models page.\n(Advisor failed: ${
               e?.message || e
@@ -209,7 +272,32 @@ User question: ${userMessage.content}`;
             usedAdvisor = true;
           }
         }
+
+        // (B) If NO task was detected (e.g., “tell me about Shopping Trends”),
+        // still fetch a dataset snapshot so answers stay page-specific.
+        if (!task && !usedAdvisor) {
+          try {
+            // Use a neutral task (cluster) just to get the current page’s dataset snapshot
+            const advisor = await fetchAdvisor(API_BASE, "cluster");
+            const snapshot = summarizeAdvisorResult(advisor);
+
+            url = `${API_BASE}/api/databot/query_welcome`;
+            question = `${snapshot}
+      
+      System: Use ONLY the datasets listed above (these reflect what's visible on the Models page right now).
+      If the user asks about a dataset not in the list, say you don’t see it on this page and suggest the closest match.
+      Keep answers ≤120 words.
+      
+      User question: ${userMessage.content}`;
+
+            payload = { question, app_info: appInfo };
+            usedAdvisor = true;
+          } catch (e) {
+            // fall through; the generic app-info branch will handle it below
+          }
+        }
       }
+
       // ---------------------- Models page advisor branch ----------------------
 
       if (!usedAdvisor) {
@@ -281,6 +369,35 @@ User question: ${userMessage.content}`;
             question,
             bot_type: effectiveBotType,
             model_context: ctx,
+          };
+        } else if (location.pathname.includes("/cleaning")) {
+          // Prepend exact cleaning context so the backend can explain what *just* changed
+          const headerParts = [];
+          if (cleaningContext?.pipelineSummary)
+            headerParts.push(`Plan:\n${cleaningContext.pipelineSummary}`);
+          if (cleaningContext?.lastAction)
+            headerParts.push(`Last action:\n${cleaningContext.lastAction}`);
+          if (cleaningContext?.resultSummary)
+            headerParts.push(`Result:\n${cleaningContext.resultSummary}`);
+          const header = headerParts.length
+            ? headerParts.join("\n\n") + "\n\n"
+            : "";
+
+          const directive = `System: You are Databot on the Data Cleaning page.
+            Explain the implications of the latest cleaning changes on this dataset using the context below.
+            Be concrete and concise (≤120 words). Focus on effects on row count, nulls, dtypes, scaling/encoding, and downstream modeling impact.
+            
+            Context:
+            ${header || "(no recent context)"}
+            Dataset ID: ${datasetId ?? "unknown"}`;
+
+          question = `${directive}\n\nUser: ${userMessage.content}`;
+
+          payload = {
+            question,
+            bot_type: effectiveBotType,
+            ...(datasetId != null ? { dataset_id: datasetId } : {}),
+            app_info: appInfo,
           };
         } else {
           payload = {
