@@ -1,25 +1,10 @@
 // client/src/components/FileUpload.jsx
-// client/src/components/FileUpload.jsx
 import React, { useState, useMemo, useCallback, useRef } from "react";
-
-/**
- * Polished CSV uploader
- * - Title & description (required)
- * - Drag & drop zone + file picker
- * - Client-side size/type checks
- * - Loading/disabled states
- * - Separate alerts for upload (top) and save (bottom)
- * - Auto-scrolls to bottom alerts on save result
- * - Defensive rendering for backend insights
- */
 
 export default function FileUpload() {
   /* ---------------- config ---------------- */
   const MAX_FILE_SIZE_MB = 50;
-  const ACCEPTED_MIME = new Set([
-    "text/csv",
-    "application/vnd.ms-excel", // some browsers label CSV like this
-  ]);
+  const ACCEPTED_MIME = new Set(["text/csv", "application/vnd.ms-excel"]);
 
   /* ---------------- state ---------------- */
   const [title, setTitle] = useState("");
@@ -218,7 +203,9 @@ export default function FileUpload() {
       }
 
       const data = await res.json();
-      setSaveSuccess(`Dataset saved! ID: ${data.id}`);
+      setSaveSuccess(
+        `Dataset saved! ID: ${data.id} Go to Datasets to find it!`
+      );
       pingBottomAlert(); // scroll to the alert under the Save button
     } catch (err) {
       console.error("Save error:", err);

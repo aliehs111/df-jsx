@@ -39,23 +39,57 @@ export default function About() {
             <strong>df.jsx</strong>—short for "dataframes in React"—started as a
             little experiment code to explore modern data science workflows in a
             web environment. Nothing that hasn't been done before, but I wanted
-            to learn how a Python-based analytics backend can integrate with a
+            to learn how to integrate a Python-based analytics backend with a
             React frontend for real-time model inference and data visualization.
           </p>
           <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
-            The original intent was mostly about data preprossing and how the
+            The original intent was focused on data preprossing and how the
             choices one makes when preparing a dataset can greatly influence the
-            outcome of the analysis and model output, all the while having an
-            interactive chatbot teaching the user about this topic. While
-            developing the modeling functions and testing on larger dataset. It
-            was at that point I had to do a deep dive in to my options for MLOps
-            within my DevOps as Heroku does not offer GPU and will shut down any
-            processes taking more than 30 seconds.
+            outcome of the analysis and model output. I wanted to have an
+            interactive chatbot teaching the user about this topic. As I started
+            developing the modeling functions and testing them on larger
+            dataset, it I realized I needed a compute solution. That's when I
+            had to do a deep dive in MLOps as my normal DevOps using Heroku for
+            deploy does not offer GPU and will shut down any processes taking
+            more than 30 seconds. And 30 seconds isn't really enough time to do
+            anything interesting.
           </p>
+          <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
+            So with the timeframe I had, I did my best to make an prototype
+            application MVP. I could have spent years on tweaking the code for
+            Databot and enhancing the context and prompts. For each databot
+            question and answer, there is an API call and perfecting the payload
+            shape, class schemas and route definitions was challenging. The
+            testing for this was extensive because each page has different
+            context source(s).
+          </p>
+          <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
+            Although it was painful at times, it was a good experience to push
+            through on my quest for integrated gpu compute as now I have a
+            better understanding of it. df.jsx now serves as a learning ground
+            for me to continue to play with and a great reference repo when I
+            integrate modeling and a chatbots into future apps.
+          </p>
+          <p className="text-sm leading-relaxed text-left rounded-md border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-900">
+            <span className="font-semibold">Tip:</span> Check out the{" "}
+            <span className="font-medium">green buttons</span> at the
+            bottom-left of most pages—my developer notes. They can save you a
+            trip to my GitHub{" "}
+            <a
+              href="https://github.com/aliehs111/df-jsx"
+              target="_blank"
+              rel="noreferrer"
+              className="underline decoration-emerald-400/70 hover:decoration-emerald-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/60 rounded-sm"
+            >
+              repo
+            </a>
+            !
+          </p>
+
           {/* Purpose */}
-          <section className="mb-8">
+          <section className="mb-8 mt-5">
             <h2 className="text-xl font-semibold text-primary mb-3 text-center">
-              Purpose
+              Technical Description
             </h2>
             <p className="text-gray-600 text-sm leading-relaxed text-left">
               The goal was to step outside a JavaScript-only comfort zone and

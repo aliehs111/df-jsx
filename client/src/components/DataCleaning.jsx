@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { debounce } from "lodash"; // Ensure lodash is installed: npm install lodash
 import DatabotCoach from "./DatabotCoach";
+import DevNotesDataCleaning from "./DevNotesDataCleaning";
 
 // Order for display and server execution
 const STEP_ORDER = [
@@ -1434,6 +1435,7 @@ memory usage: Unknown`;
         pipeline={pipeline}
         options={options}
       />
+      <DevNotesDataCleaning />
     </div>
   );
 }

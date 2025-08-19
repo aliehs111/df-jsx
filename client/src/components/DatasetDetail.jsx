@@ -6,6 +6,7 @@ import { ChatBubbleLeftEllipsisIcon } from "@heroicons/react/24/outline";
 import InsightsPanel from "./InsightsPanel";
 import MetalButton from "./MetalButton";
 import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
+import DevNotesDatasetDetail from "./DevNotesDatasetDetail";
 
 export default function DatasetDetail() {
   const { id } = useParams();
@@ -345,6 +346,7 @@ export default function DatasetDetail() {
       {heatmapUrl && (
         <img src={heatmapUrl} alt="heatmap" className="mt-4 rounded shadow" />
       )}
+      <DevNotesDatasetDetail />
     </div>
   );
 }

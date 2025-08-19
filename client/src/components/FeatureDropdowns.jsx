@@ -58,10 +58,20 @@ export default function FeatureDropdowns() {
       <Panel title="Modeling">
         <ul className="list-disc list-inside text-sm text-gray-700 space-y-2">
           <li>
-            <span className="font-medium">Predictors</span>: Accessibility
-            Misinterpretation Risk (OpenAI-backed responses to avoid GPU) and
-            College Earnings Potential (offline-trained in a notebook; artifacts
-            bundled with the repo).
+            <span className="font-medium">Heuristic Scorer</span>: Message
+            Clarity & Misinterpretation Risk
+            <span className="text-gray-500">
+              (rule-based + OpenAI API responses, so to run on CPU in deployed
+              environment without GPU)
+            </span>
+          </li>
+          <li>
+            <span className="font-medium">ML Model</span>: College Earnings
+            Potential
+            <span className="text-gray-500">
+              (logistic regression trained offline in Jupyter; artifacts bundled
+              with the repo)
+            </span>
           </li>
           <li>
             <span className="font-medium">Models (fit on your data)</span>:
@@ -90,56 +100,69 @@ export default function FeatureDropdowns() {
       <Panel title="DevOps / MLOps">
         <ul className="list-disc list-inside text-sm text-gray-700 space-y-2">
           <li>
-            Deployments: Heroku web + worker dynos for API/tasks; optional
-            Northflank service for heavier or GPU-friendly inference endpoints
+            <span className="font-medium">Deployments</span>: Heroku web +
+            worker dynos for APIs and tasks; optional Northflank service for
+            heavier or GPU-based inference.
           </li>
           <li>
-            Environments & secrets: .env for local, Heroku config vars for prod
-            (DB URL, S3 creds, JWT, CORS)
+            <span className="font-medium">Environments & Secrets</span>:
+            <code>.env</code> for local; Heroku config vars for production (DB
+            URL, S3 creds, JWT, CORS).
           </li>
           <li>
-            Build artifacts & model registry: versioned models and plots stored
-            on AWS S3 with predictable keys (e.g.,{" "}
+            <span className="font-medium">Model Registry</span>: Versioned
+            models and plots stored on AWS S3 with predictable keys (e.g.{" "}
             <code>
               models/{"{"}model{"}"}/{"{"}version{"}"}/
             </code>
-            )
+            ).
           </li>
           <li>
-            CI/CD hooks (optional): push-to-deploy & health check route for
-            smoke tests
+            <span className="font-medium">CI/CD</span>: Integrated with Heroku
+            pipelines. Post-deploy health checks verify endpoints and confirm
+            models load correctly before going live.
           </li>
           <li>
-            Observability: structured JSON logging from FastAPI; request IDs,
-            timing, and inference latency metrics
+            <span className="font-medium">Version Tracking</span>: Training
+            reports and model artifacts link back to git commit hashes, making
+            builds easy to trace and reproduce.
           </li>
           <li>
-            Error handling & retries: graceful API fallbacks for 4xx/5xx; client
-            retry/backoff for transient errors
+            <span className="font-medium">Observability</span>: Structured JSON
+            logging from FastAPI with request IDs, timing, and inference latency
+            metrics.
           </li>
           <li>
-            Data lifecycle: temp in-memory processing; finalized datasets to S3;
-            optional S3 lifecycle policies
+            <span className="font-medium">Error Handling & Retries</span>:
+            Graceful API fallbacks for 4xx/5xx responses; client retry/backoff
+            for transient errors.
           </li>
           <li>
-            Reproducibility: pinned deps (requirements/conda), environment
-            snapshots, and model version tags shown in UI
+            <span className="font-medium">Data Lifecycle</span>: In-memory temp
+            processing; finalized datasets stored on S3; optional lifecycle
+            policies for archiving.
           </li>
           <li>
-            Database: MySQL (JawsDB) for metadata/params/run history; async
-            SQLAlchemy; protected routes
+            <span className="font-medium">Reproducibility</span>: Pinned
+            dependencies, environment snapshots, and model version tags surfaced
+            in the UI.
           </li>
           <li>
-            Security: CORS allowlist, JWT, and presigned S3 URLs for controlled
-            downloads
+            <span className="font-medium">Database</span>: MySQL (JawsDB) for
+            metadata, parameters, and run history; async SQLAlchemy; protected
+            routes.
           </li>
           <li>
-            Performance: batch endpoints, streaming for long tasks, queue-ready
-            worker patterns
+            <span className="font-medium">Security</span>: CORS allowlist, JWT
+            authentication, and presigned S3 URLs for controlled downloads.
           </li>
           <li>
-            Backups & recovery: DB snapshots + S3 object versioning for
-            artifacts
+            <span className="font-medium">Performance</span>: Batch endpoints,
+            streaming for long-running tasks, and queue-ready worker patterns.
+          </li>
+          <li>
+            <span className="font-medium">Backups & Recovery</span>: DB
+            snapshots plus S3 object versioning for model artifacts.
           </li>
         </ul>
       </Panel>
@@ -148,23 +171,35 @@ export default function FeatureDropdowns() {
       <Panel title="Chatbot">
         <ul className="list-disc list-inside text-sm text-gray-700 space-y-2">
           <li>
-            Context-aware Databot explains cleaning steps and model outputs in
-            plain language
+            <span className="font-medium">Context-Aware Assistant</span>:
+            Explains data cleaning steps and model prediction output in plain
+            language, translating technical aspects into user-friendly insights.
           </li>
           <li>
-            Page-aware guidance (e.g., different prompts on Predictors vs. Data
-            Cleaning)
+            <span className="font-medium">Page-Specific Guidance</span>:
+            Provides tailored prompts depending on where the user is in the app.
+            The context is conditional based on component, active files and user
+            actions where applicable.
           </li>
           <li>
-            Action hints: suggests next steps (impute vs. drop, scale vs.
-            standardize, etc.)
+            <span className="font-medium">Actionable Hints</span>: Suggests next
+            steps such as <em>impute vs. drop</em> or
+            <em>scale vs. standardize</em>, reducing trial-and-error.
           </li>
           <li>
-            Lightweight, API-first integration so chatbot can evolve without UI
-            rewrites
+            <span className="font-medium">API-First Design</span>: Chatbot runs
+            as a lightweight API service so it can evolve independently of the
+            UI, making it easy to update or swap models without rewriting
+            components.
+          </li>
+          <li>
+            <span className="font-medium">Explainability Layer</span>: Suggests
+            Model/Dataset pairing for user based on metadata from datasets and
+            models. Answers user's questions as it applies to current dataset.
           </li>
         </ul>
       </Panel>
+
       {/* DevNotes */}
       <Panel title="Development Notes">
         <ul className="list-disc list-inside text-sm text-gray-700 space-y-2">
@@ -189,8 +224,8 @@ export default function FeatureDropdowns() {
             button on the bottom of this page to email me.
           </li>
           <li>
-            Understand that df.jsx is strictly an academic experiment and not
-            ready for prime time.
+            Understand that df.jsx is learning project and not ready for prime
+            time.
           </li>
         </ul>
       </Panel>

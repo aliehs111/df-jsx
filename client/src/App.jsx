@@ -40,18 +40,17 @@ function App() {
   const [user, setUser] = useState(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
 
+  // first effect: initial check (keep as is)
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
-        const res = await fetch("/api/users/me", {
-          credentials: "include",
-        });
+        const res = await fetch("/api/users/me", { credentials: "include" });
         if (res.ok) {
           const userData = await res.json();
           setUser(userData);
         }
       } catch {
-        // if network error or 401, remain unauthenticated
+        // stay unauthenticated
       } finally {
         setCheckingAuth(false);
       }
@@ -59,9 +58,34 @@ function App() {
     fetchCurrentUser();
   }, []);
 
-  if (checkingAuth) {
-    return <div className="text-center py-8">Loading...</div>;
-  }
+  // second effect: re-check on return from idle
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch("/api/users/me", { credentials: "include" });
+        if (!res.ok) {
+          setUser(null);
+          window.location.hash = "#/"; // go back to splash
+        }
+      } catch {
+        setUser(null);
+        window.location.hash = "#/";
+      }
+    };
+
+    const onFocus = () => checkAuth();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkAuth();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   const ProtectedRoute = ({ element }) =>
     user ? element : <Navigate to="/" replace />;

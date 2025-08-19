@@ -1,6 +1,6 @@
 // client/src/wherever/CollegeEarningsCard.jsx
 import React, { useEffect, useState } from "react";
-
+import TrainingReportPDF from "../assets/college_earnings_v1_75K_5y.pdf";
 export default function CollegeEarningsCard() {
   // --- local state (hooks must be inside the component) ---
   const [cip4, setCip4] = useState("1101");
@@ -310,11 +310,22 @@ export default function CollegeEarningsCard() {
 
             <div className="pt-1">
               <a
-                href="#"
-                onClick={(e) => e.preventDefault()}
+                href={TrainingReportPDF}
+                target="_blank"
+                rel="noreferrer"
                 className="text-sm text-blue-600 hover:underline"
               >
                 View training report (v1)
+              </a>
+            </div>
+            <div className="pt-1">
+              <a
+                href="https://collegescorecard.ed.gov/data/"
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm text-blue-600 hover:underline"
+              >
+                View source data
               </a>
             </div>
 

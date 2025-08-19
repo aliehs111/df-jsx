@@ -88,167 +88,149 @@ export default function DevNotesDatabot() {
   const [open, setOpen] = useState(false);
 
   /* =========================
-   * SNIPPETS
+   * SNIPPETS (copyable)
    * ========================= */
 
-  // A) Request/Response contract (what the page sends/receives)
-  const exRequest = `{
-  "page": "datasets/detail",
-  "user_message": "Is this dataset okay for logistic regression?",
-  "dataset_id": 42,
-  "context_hints": ["model_selection", "data_quality"]
+  // A) FE events from DataCleaning → Databot (what you emit)
+  const feEvents = `// DataCleaning.jsx (already wired)
+// 1) Rich context for Databot (plan + deltas)
+window.dispatchEvent(new CustomEvent("databot:context", { detail: {
+  datasetId: Number(id),
+  page: "data-cleaning",
+  intent,                 // "options_updated" | "preview" | "preview_result" | "save_request" | "save_success" | "save_error"
+  summary,                // summarizePipeline(pipeline)
+  result_summary,         // computeStatsDelta(...).summary
+  before_stats, after_stats,
+  alerts,
+  selectedOpsSummary: summary
+}}));
+
+// 2) One-line breadcrumb for "what just happened"
+window.dispatchEvent(new CustomEvent("dfjsx-cleaning-action", {
+  detail: { action: "Filled missing values in 'age' with median" }
+}));`;
+
+  // B) Databot.jsx: route key helper used in prompts/telemetry
+  const feRouteKey = `// Databot.jsx
+function routeToPageKey(pathname) {
+  if (!pathname) return "unknown";
+  if (pathname === "/dashboard") return "dashboard";
+  if (pathname === "/models") return "models/index";
+  if (pathname === "/predictors") return "predictors/index";
+  if (/^\\/datasets\\/\\d+$/.test(pathname)) return "datasets/detail";
+  if (/^\\/datasets\\/\\d+\\/clean/.test(pathname)) return "data-cleaning";
+  return "other";
 }`;
 
-  const exResponse = `{
-  "answer": "Logistic regression expects a binary target. Your 'churned' is 0/1...",
-  "used_context": {
-    "page": "datasets/detail",
-    "dataset_id": 42,
-    "columns": ["age","income","churned"],
-    "n_rows": 12134,
-    "has_missing_values": true
-  },
-  "model": "gpt-*",
-  "prompt_revision": "v3",
-  "latency_ms": 612,
-  "input_tokens": 962,
-  "output_tokens": 164,
-  "request_id": "dbot_2025-08-16T18:05:11Z_7f2c"
+  // C) Databot.jsx: advisor fetch with timeout (used on /models)
+  const feAdvisor = `async function fetchAdvisor(base, task) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const u = \`\${base}/api/databot/cleaned_datasets/recommendations?task=\${encodeURIComponent(task)}\`;
+    const res = await fetch(u, { method: "GET", credentials: "include", signal: ctrl.signal });
+    if (!res.ok) throw new Error("advisor " + res.status);
+    return await res.json();
+  } finally {
+    clearTimeout(t);
+  }
 }`;
 
-  // B) FastAPI route: schema-first ask endpoint
-  const beRouteAsk = `# server/routers/databot.py (excerpt)
-from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
-from sqlalchemy.ext.asyncio import AsyncSession
-from .deps import get_db
-from .llm import call_llm
-from .context import build_context
-from .telemetry import with_request_id
+  // D) Databot.jsx: branch map (what context is used where)
+  const feBranches = `// Databot.jsx (inside askDatabot)
+// 1) /dashboard → static appInfo via query_welcome
+// 2) /models → detectTaskFromQuestion → advisor → prepend shortlist → query_welcome
+// 3) /predictors → modelbot header built from forcedContext (feature, inputs, result)
+// 4) /datasets/:id/clean → prepend cleaningContext (plan, lastAction, resultSummary) and dataset_id
+// 5) default → send dataset_id and app_info to /api/databot/query
+// All paths include credentials: "include" so server-side session can read DB context (columns, targets, etc).`;
 
-router = APIRouter(prefix="/api/databot", tags=["databot"])
+  // E) Backend: ask endpoint (schema-first)
+  const beAsk = `# server/routers/databot.py (essentials)
+@router.post("/ask")
+async def ask(req: AskRequest, db: AsyncSession = Depends(get_async_db)):
+    ctx = await build_context(db=db, page=req.page, dataset_id=req.dataset_id, hints=req.context_hints or [])
+    prompt, rev = render_prompt(req.page, req.user_message, ctx)
+    out = await call_llm(prompt=prompt, temperature=0.2, max_tokens=600, timeout_s=20)
+    if not out.ok:
+        raise HTTPException(status_code=502, detail=f"LLM error: {out.reason}")
+    return {
+        "answer": out.text,
+        "used_context": ctx.public_dict(),
+        "model": out.model,
+        "prompt_revision": rev,
+        "latency_ms": out.latency_ms,
+        "input_tokens": out.usage.prompt_tokens,
+        "output_tokens": out.usage.completion_tokens,
+        "request_id": out.request_id,
+    }`;
 
-class AskRequest(BaseModel):
-    page: str = Field(..., examples=["datasets/detail", "models/index"])
-    user_message: str
-    dataset_id: int | None = None
-    context_hints: list[str] | None = None
-
-class AskResponse(BaseModel):
-    answer: str
-    used_context: dict
-    model: str
-    prompt_revision: str
-    latency_ms: int
-    input_tokens: int
-    output_tokens: int
-    request_id: str
-
-@router.post("/ask", response_model=AskResponse)
-@with_request_id
-async def ask(req: AskRequest, db: AsyncSession = Depends(get_db)) -> AskResponse:
-    # 1) Build page-aware context (optionally queries MySQL)
-    ctx = await build_context(db=db, page=req.page, dataset_id=req.dataset_id,
-                             hints=req.context_hints or [])
-    # 2) Render prompt (versioned per page)
-    prompt, rev = render_prompt(page=req.page, user=req.user_message, ctx=ctx)
-
-    # 3) Model call with guardrails
-    llm_out = await call_llm(prompt=prompt, temperature=0.2, max_tokens=600, timeout_s=20)
-    if not llm_out.ok:
-        raise HTTPException(status_code=502, detail=f"LLM error: {llm_out.reason}")
-
-    # 4) Typed response with telemetry
-    return AskResponse(
-        answer=llm_out.text,
-        used_context=ctx.public_dict(),
-        model=llm_out.model,
-        prompt_revision=rev,
-        latency_ms=llm_out.latency_ms,
-        input_tokens=llm_out.usage.prompt_tokens,
-        output_tokens=llm_out.usage.completion_tokens,
-        request_id=llm_out.request_id
-    )`;
-
-  // C) Context builder (MySQL -> prompt inputs)
-  const beContext = `# server/routers/context.py (excerpt)
-from types import SimpleNamespace
-from sqlalchemy import select
-from .models import Dataset
-
-async def build_context(db, page: str, dataset_id: int | None, hints: list[str]):
-    ctx = {"page": page, "hints": hints}
-
-    if dataset_id is not None:
-        row = (await db.execute(select(Dataset).where(Dataset.id == dataset_id))).scalar_one_or_none()
-        if row:
-            ctx |= {
-                "dataset_id": row.id,
-                "columns": row.column_metadata.get("names", []),
-                "target": row.target_column,
-                "n_rows": row.n_rows,
-                "n_columns": row.n_columns,
-                "has_missing_values": row.has_missing_values,
-            }
-    return SimpleNamespace(
-        **ctx,
-        public_dict=lambda: ctx  # safely exposes only public bits
-    )`;
-
-  // D) Prompt template (page-aware, versioned)
-  const bePrompt = `# server/routers/prompts.py (excerpt)
-PROMPT_VERSIONS = {
-    "datasets/detail": "v3",
-    "models/index": "v2",
-}
-
-def render_prompt(page: str, user: str, ctx) -> tuple[str, str]:
-    rev = PROMPT_VERSIONS.get(page, "v1")
+  // F) Prompt: dataset/detail and data-cleaning variants
+  const bePrompts = `# server/routers/prompts.py (sketch)
+def render_prompt(page: str, user: str, ctx):
     if page == "datasets/detail":
-        tmpl = f"""
-You are a data science tutor. Answer briefly and concretely.
-Context:
-- dataset_id: {getattr(ctx, 'dataset_id', None)}
-- columns: {getattr(ctx, 'columns', [])}
-- target: {getattr(ctx, 'target', None)}
-- n_rows: {getattr(ctx, 'n_rows', 'unknown')}
-- missing_values: {getattr(ctx, 'has_missing_values', False)}
-User question: "{user}"
-Rules:
-- Prefer guidance tied to the dataset context above.
-- If data is insufficient, state what is missing and suggest the next concrete step.
-""".strip()
-    else:
-        tmpl = f"You are a data science tutor. Page: {page}. Hints: {ctx.hints}\\nUser question: \\"{user}\\"\\nKeep answers actionable and tied to the page."
-    return tmpl, rev`;
+        return (
+            "\\n".join([
+                "You are a data science tutor. Be concrete and concise.",
+                f"dataset_id: {getattr(ctx, 'dataset_id', None)}",
+                f"columns: {getattr(ctx, 'columns', [])}",
+                f"target: {getattr(ctx, 'target', None)}",
+                f"n_rows: {getattr(ctx, 'n_rows', 'unknown')}",
+                f"missing_values: {getattr(ctx, 'has_missing_values', False)}",
+                f"User: {user}",
+            ]),
+            "v3"
+        )
+    if page == "data-cleaning":
+        return (
+            "\\n".join([
+                "You are a data cleaning tutor. Explain what just changed and why it matters.",
+                f"dataset_id: {getattr(ctx, 'dataset_id', None)}",
+                f"plan: {getattr(ctx, 'plan', '-')}",
+                f"delta: {getattr(ctx, 'result_summary', '-')}",
+                "Rules: keep under 100 words.",
+                f"User: {user}",
+            ]),
+            "v2"
+        )
+    # default
+    return (f"Page: {page}\\nHints: {getattr(ctx, 'hints', [])}\\nUser: {user}", "v1")`;
 
-  // E) Minimal frontend call (React) — no template literals to keep it copy-safe here
-  const feAskCall = `// client/src/components/Databot.jsx (excerpt)
-async function askDatabot(userMessage, location) {
-  const match = (location.pathname || "").match(/\\/datasets\\/(\\d+)/);
-  const datasetId = match ? Number(match[1]) : null;
+  // G) Context builder adds cleaning hints when page == data-cleaning
+  const beContext = `# server/routers/context.py (sketch)
+async def build_context(db, page, dataset_id, hints):
+    ctx = {"page": page, "hints": hints}
+    if dataset_id:
+        ds = await load_dataset_row(db, dataset_id)
+        if ds:
+            ctx |= {
+                "dataset_id": ds.id,
+                "columns": list((ds.column_metadata or {}).keys()),
+                "target": ds.target_column,
+                "n_rows": ds.n_rows,
+                "n_columns": ds.n_columns,
+                "has_missing_values": ds.has_missing_values,
+            }
+    if page == "data-cleaning":
+        # these are posted from the FE as part of state sync
+        last = await read_last_cleaning_state(db, dataset_id)
+        if last:
+            ctx |= {
+                "plan": last.last_summary,
+                "result_summary": last.last_result,
+            }
+    return SimpleNamespace(**ctx, public_dict=lambda: ctx)`;
 
-  const payload = {
-    page: routeToPageKey(location.pathname),
-    user_message: userMessage,
-    dataset_id: datasetId,
-    context_hints: ["model_selection", "data_quality"]
-  };
-
-  const res = await fetch("/api/databot/ask", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(payload)
-  });
-
-  if (!res.ok) throw new Error("Databot failed: " + res.status);
-  return await res.json();
-}`;
+  // H) Troubleshooting checklist
+  const troubleshooting = `• If Databot answers feel generic on /models, verify advisor endpoint returns items and that Databot.jsx is on the query_welcome path for that route.
+• If cleaning context is ignored, confirm the FE emits "databot:context" and "dfjsx-cleaning-action", and that Databot.jsx listens on those events (setForcedContext + cleaningContext).
+• If dataset-specific facts are missing, check credentials: "include" on fetch and your server session/DB access.
+• If chat freezes on advisor calls, confirm fetchWithTimeout and the 4s abort are in place (fallback to normal welcome path).
+• For old datasets uploaded pre-change, refresh metadata (or re-open the page) so the backend context aligns with the new schema.`;
 
   return (
     <>
-      {/* Floating button (bottom-left like other pages) */}
+      {/* Floating button (bottom-left) */}
       <button
         onClick={() => setOpen(true)}
         className="fixed bottom-6 left-6 z-[60] rounded-full bg-accent p-3 shadow-lg hover:bg-accent/90 text-white"
@@ -291,7 +273,7 @@ async function askDatabot(userMessage, location) {
                     {/* Header */}
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                       <Dialog.Title className="text-lg font-semibold text-gray-900">
-                        Dev Notes - Databot
+                        Dev Notes — Databot
                       </Dialog.Title>
                       <button
                         onClick={() => setOpen(false)}
@@ -305,140 +287,45 @@ async function askDatabot(userMessage, location) {
                     {/* Body */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-6 text-sm">
                       <Section title="Summary">
-                        In class we built prompts in notebooks and used a simple
-                        hosted runtime. Here, every Databot question is a real
-                        API request that: (1) gathers page-specific context, (2)
-                        optionally pulls dataset metadata from MySQL, (3)
-                        renders a versioned prompt with guardrails, (4) returns
-                        a typed response to the UI with telemetry.
+                        Each chat request builds page-aware context, renders a
+                        versioned prompt, calls the LLM with guardrails, and
+                        returns a typed payload with telemetry. Context sources
+                        vary by route: app info (dashboard), dataset metadata
+                        (detail), in-flight cleaning state (data-cleaning),
+                        cross-dataset advisor (models), or result bundles
+                        (predictors).
                       </Section>
 
-                      <Section title=" Basic Architecture" as="ul">
-                        <li>
-                          <strong>Frontend (React):</strong> sends{" "}
-                          <code>page</code>, optional <code>dataset_id</code>,
-                          and the user’s question to{" "}
-                          <code>/api/databot/ask</code>.
-                        </li>
-                        <li>
-                          <strong>Backend (FastAPI):</strong> validates with
-                          Pydantic, loads MySQL metadata when needed, renders a{" "}
-                          <em>page-aware</em> prompt, calls the LLM, and returns
-                          a typed response.
-                        </li>
-                        <li>
-                          <strong>MySQL (SQLAlchemy):</strong> stores dataset
-                          facts (columns, target, n_rows, missingness) so
-                          answers are grounded.
-                        </li>
-                        <li>
-                          <strong>Observability:</strong> latency, token usage,
-                          and a <code>request_id</code> are captured per call.
-                        </li>
-                      </Section>
-                      <Section title="Varied Databot Context Sources">
-                        <ul className="list-disc list-inside space-y-1">
-                          <li>
-                            <strong>Dashboard:</strong> Reads the project
-                            overview from the local markdown and injects that
-                            text as read-only reference material. No dataset
-                            lookup here.
-                          </li>
-
-                          <li>
-                            <strong>Dataset Detail:</strong> Extracts{" "}
-                            <code>dataset_id</code> from the URL and the backend
-                            loads metadata from MySQL via SQLAlchemy (columns,
-                            target, row/column counts, missingness, etc.). That
-                            dictionary is merged into the prompt so answers are
-                            grounded in the selected dataset.
-                          </li>
-
-                          <li>
-                            <strong>Data Cleaning:</strong> Same{" "}
-                            <code>dataset_id</code> metadata as Dataset Detail,
-                            plus (when available) the cleaning
-                            preview/suggestions returned by the cleaning API
-                            (e.g., dtype map, null counts, candidate
-                            imputations/encodings). If the preview hasn’t been
-                            run, it falls back to metadata-only.
-                          </li>
-
-                          <li>
-                            <strong>Models:</strong> Aggregates metadata for{" "}
-                            <em>all</em> cleaned datasets shown on the page via
-                            a small advisor endpoint (badges, target candidates,
-                            signals), merges in model descriptors
-                            (hints/constraints for Logistic, RF, PCA+KMeans,
-                            etc.), and app overview text from the same markdown
-                            used on the Dashboard. When the user asks a
-                            model-selection question, the advisor summary is
-                            prepended to the prompt so the model can recommend a
-                            dataset + target with setup steps.
-                          </li>
-
-                          <li>
-                            <strong>Predictors:</strong> Context is{" "}
-                            <em>result-driven</em>. After a predictor run
-                            completes, the user clicks “Explain with Databot,”
-                            which packages the predictor type + params, key
-                            outputs/metrics, and (if present) the{" "}
-                            <code>dataset_id</code>
-                            metadata. That bundle is sent to Databot to generate
-                            a plain-English explanation of the results and
-                            recommended next actions.
-                          </li>
-                        </ul>
+                      <Section title="Frontend events from DataCleaning">
+                        <CodeBlock language="javascript" dark code={feEvents} />
                       </Section>
 
-                      <Section title="Request / Response contract">
-                        <div className="grid gap-3">
-                          <CodeBlock language="json" dark code={exRequest} />
-                          <CodeBlock language="json" dark code={exResponse} />
-                        </div>
-                      </Section>
-
-                      <Section title="FastAPI route: schema-first design">
-                        <CodeBlock language="python" dark code={beRouteAsk} />
-                      </Section>
-
-                      <Section title="Context builder: MySQL → prompt inputs">
-                        <CodeBlock language="python" dark code={beContext} />
-                      </Section>
-
-                      <Section title="Prompt template: page-aware & versioned">
-                        <CodeBlock language="python" dark code={bePrompt} />
-                      </Section>
-
-                      <Section title="Frontend call (React)">
+                      <Section title="Databot routing overview (frontend)">
+                        <CodeBlock language="text" dark code={feBranches} />
+                        <div className="h-2" />
                         <CodeBlock
                           language="javascript"
                           dark
-                          code={feAskCall}
+                          code={feRouteKey}
                         />
                       </Section>
 
-                      <Section title="Chatbot in Deployed Environment" as="ul">
-                        <li>
-                          <strong>Schema-driven:</strong> requests and responses
-                          are typed (Pydantic), making failures reproducible.
-                        </li>
-                        <li>
-                          <strong>Grounded answers:</strong> prompts incorporate
-                          dataset metadata when a dataset is in view.
-                        </li>
-                        <li>
-                          <strong>Separation of concerns:</strong> context,
-                          prompt, and model call are modular and versioned.
-                        </li>
-                        <li>
-                          <strong>Guardrails:</strong> low temperature, timeouts
-                          and token caps keep answers concise and on-task.
-                        </li>
-                        <li>
-                          <strong>Versioning:</strong>{" "}
-                          <code>prompt_revision</code> enables A/B comparisons.
-                        </li>
+                      <Section title="Models advisor: timeout + fetch">
+                        <CodeBlock
+                          language="javascript"
+                          dark
+                          code={feAdvisor}
+                        />
+                      </Section>
+
+                      <Section title="Backend: ask endpoint (schema-first)">
+                        <CodeBlock language="python" dark code={beAsk} />
+                      </Section>
+
+                      <Section title="Prompts (dataset detail & cleaning)">
+                        <CodeBlock language="python" dark code={bePrompts} />
+                        <div className="h-2" />
+                        <CodeBlock language="python" dark code={beContext} />
                       </Section>
                     </div>
                     {/* /Body */}

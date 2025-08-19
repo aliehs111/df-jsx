@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DevNotesModels from "../components/DevNotesModels.jsx";
+import InlineError from "./InlineError.jsx";
 
 export default function Models() {
   const [datasets, setDatasets] = useState([]);
@@ -22,6 +23,7 @@ export default function Models() {
   // Hide unfinished models from the UI
   const EXCLUDED_MODELS = new Set(["TimeSeriesForecasting"]);
   const visibleModels = models.filter((m) => !EXCLUDED_MODELS.has(m.name));
+  const [error, setError] = useState("");
 
   async function fetchWithTimeout(url, opts = {}, ms = 4000) {
     const ctrl = new AbortController();
@@ -279,9 +281,13 @@ export default function Models() {
     selectedModel === "TimeSeriesForecasting" ||
     (selectedTarget && targetUniqueCount >= 2);
 
+  const FRIENDLY_FAIL =
+    "This dataset or target may be unsuitable for the selected model. Try another model, pick a different target, or clean the dataset and retry.";
+
   const handleRunModel = async () => {
     if (!selectedDataset || !selectedModel) return;
 
+    // Client-side guards (keep your specific messages)
     if (
       (selectedModel === "RandomForest" ||
         selectedModel === "LogisticRegression" ||
@@ -335,7 +341,7 @@ export default function Models() {
       } else if (selectedModel === "Sentiment") {
         payload.target_column = selectedTarget;
       } else if (selectedModel === "AnomalyDetection") {
-        // Backend handles records
+        /* backend handles */
       } else if (selectedModel === "TimeSeriesForecasting") {
         payload.target_column = selectedTarget; // "date|value"
       }
@@ -346,23 +352,31 @@ export default function Models() {
         body: JSON.stringify(payload),
       });
 
+      // Try to parse JSON either way so we can surface details
       const text = await res.text();
-      let data;
+      let data = null;
       try {
-        data = JSON.parse(text);
+        data = text ? JSON.parse(text) : null;
       } catch {
-        console.error("Non-JSON response:", text.slice(0, 200));
-        alert("Backend error: Non-JSON response received.");
-        return;
+        // leave data as null; we'll stash raw text in details if needed
       }
 
       if (!res.ok) {
-        setResult({ error: data.detail || `Model run failed (${res.status})` });
-      } else {
-        setResult(data);
+        const serverDetail =
+          (data && (data.detail || data.error || data.message)) ||
+          text ||
+          `HTTP ${res.status}`;
+        setResult({ error: FRIENDLY_FAIL, details: serverDetail });
+        return;
       }
+
+      // success
+      setResult(data);
     } catch (err) {
-      setResult({ error: `Network error: ${err.message}` });
+      setResult({
+        error: FRIENDLY_FAIL,
+        details: err?.message || String(err),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -1336,10 +1350,19 @@ export default function Models() {
                   {result.n_records}
                 </p>
               )}
+
+              {result?.error && (
+                <InlineError
+                  message={result.error}
+                  details={result.details}
+                  onClose={() => setResult({})}
+                />
+              )}
             </div>
           )}
         </div>
       )}
+
       <DevNotesModels />
     </div>
   );

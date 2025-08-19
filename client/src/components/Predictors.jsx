@@ -271,14 +271,14 @@ export default function PredictorsPro() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight text-white drop-shadow-sm">
-                Predictor Models
+                Predictors
               </h1>
               <span className="rounded-full bg-white/15 px-2 py-0.5 text-[11px] font-medium text-white/90 ring-1 ring-white/25">
                 v0.9 • dev
               </span>
             </div>
             <p className="mt-2 text-cyan-100 text-sm">
-              Accessibility Misinterpretation Risk & College Earnings
+              Message Clarity Evaluator & College Earnings Predictor
             </p>
           </div>
         </div>
@@ -289,7 +289,7 @@ export default function PredictorsPro() {
         {/* Left: Accessibility Inputs & Settings */}
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-100 p-4 flex items-center justify-between">
-            <h2 className="text-lg font-medium">Accessibility — Inputs</h2>
+            <h2 className="text-lg font-medium">Message — Inputs</h2>
             <div className="flex items-center gap-3">
               <label className="flex items-center gap-2 text-sm">
                 <input

@@ -257,7 +257,7 @@ Question: \${userMessage.content}\`;
                     {/* Body */}
                     <div className="flex-1 overflow-y-auto p-4 space-y-6 text-sm">
                       <Section title="What this page does">
-                        The <strong>Models</strong> page lets me choose a
+                        The <strong>Models</strong> page lets the user choose a
                         cleaned dataset, pick a model (Random Forest, Logistic
                         Regression, PCA+KMeans, Sentiment, Anomaly Detection,
                         Time Series), and run it. The hard part here was{" "}
@@ -267,18 +267,29 @@ Question: \${userMessage.content}\`;
 
                       <Section title="Challenges">
                         Initially, Databot only saw the selected dataset. To
-                        give useful advice (e.g., “Use dataset A with target X
-                        for logistic regression”), it needed a
-                        <strong> cross-dataset view</strong> of metadata
-                        (dtypes, unique counts, text/categorical mix). I added a
-                        small “advisor” API that aggregates cleaned dataset
-                        metadata and returns a shortlist with badges and target
-                        candidates. Then I wired Databot to consult that
-                        shortlist when the user asks model-selection questions
-                        on this page.
+                        give concrete advice (e.g., “Use <em>Dataset A</em> with
+                        Logistic Regression; target=<code>churn</code>”), it
+                        needed a<strong>cross-dataset view</strong> of{" "}
+                        <em>both</em> dataset and model metadata. I added a
+                        small advisor API that aggregates cleaned-dataset stats
+                        (dtype mix, unique counts, missingness) and
+                        <strong>model descriptors</strong> (task type, target
+                        constraints, and preprocessing requirements). The UI
+                        surfaces these as <strong>badges</strong> under each
+                        dataset and model so users see key signals at a glance
+                        (e.g., datasets: <code>has_target</code>,{" "}
+                        <code>binary</code>, <code>mostly_numeric</code>,{" "}
+                        <code>text_features</code>; models: Logistic→
+                        <code>binary_only</code>/<code>needs_encoding</code>,
+                        RF→<code>mixed_types_ok</code>, PCA+KMeans→
+                        <code>numeric_only</code>/<code>needs_scaling</code>).
+                        When a user asks model-selection questions, Databot
+                        consults the advisor shortlist + badges to recommend a
+                        single dataset and (if supervised) an exact target, plus
+                        2–3 setup steps.
                       </Section>
 
-                      <Section title="What I built (high level)" as="ol">
+                      <Section title="Details" as="ol">
                         <li>
                           <strong>Advisor API (FastAPI):</strong> returns a
                           ranked list of cleaned datasets with badges (
