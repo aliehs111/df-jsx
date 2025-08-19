@@ -88,7 +88,7 @@ export default function DevNotesDatabot() {
   const [open, setOpen] = useState(false);
 
   /* =========================
-   * SNIPPETS (copyable)
+   * SNIPPETS
    * ========================= */
 
   // A) FE events from DataCleaning → Databot (what you emit)

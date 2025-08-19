@@ -37,38 +37,47 @@ export default function About() {
           {/* Intro */}
           <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
             <strong>df.jsx</strong>—short for "dataframes in React"—started as a
-            little experiment code to explore modern data science workflows in a
-            web environment. Nothing that hasn't been done before, but I wanted
-            to learn how to integrate a Python-based analytics backend with a
-            React frontend for real-time model inference and data visualization.
+            little experiment for me to explore modern data science workflows in
+            a web environment. Nothing that hasn't been done before, but I
+            wanted to learn for myself how to integrate a Python-based analytics
+            backend with a React frontend for real-time model inference and data
+            visualization.
           </p>
           <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
-            The original intent was focused on data preprossing and how the
+            My original intent was focused on data preprossing and how the
             choices one makes when preparing a dataset can greatly influence the
             outcome of the analysis and model output. I wanted to have an
-            interactive chatbot teaching the user about this topic. As I started
-            developing the modeling functions and testing them on larger
-            dataset, it I realized I needed a compute solution. That's when I
-            had to do a deep dive in MLOps as my normal DevOps using Heroku for
-            deploy does not offer GPU and will shut down any processes taking
-            more than 30 seconds. And 30 seconds isn't really enough time to do
-            anything interesting.
+            interactive chatbot teaching the user about just this topic because
+            statistical manipulation is very interesting to me.{" "}
+          </p>
+          <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
+            As I started developing the modeling functions and testing them on
+            larger datasets, I realized quickly that I needed a compute
+            solution. That's when I had to research options for integrating
+            MLOps as my normal DevOps using Heroku for deploy does not offer GPU
+            and will shut down any processes taking more than 30 seconds. And 30
+            seconds isn't really enough time to do anything interesting.
           </p>
           <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
             So with the timeframe I had, I did my best to make an prototype
             application MVP. I could have spent years on tweaking the code for
             Databot and enhancing the context and prompts. For each databot
             question and answer, there is an API call and perfecting the payload
-            shape, class schemas and route definitions was challenging. The
-            testing for this was extensive because each page has different
-            context source(s).
+            shape, class schemas and route definitions was challenging and
+            really time-consuming as I've never done it before. The testing was
+            extensive because each page has different context source(s) and
+            behavior was dependent on how and when the datasets were uploaded
+            and cleaned.
           </p>
           <p className="text-gray-600 text-sm mb-6 leading-relaxed text-left">
-            Although it was painful at times, it was a good experience to push
-            through on my quest for integrated gpu compute as now I have a
-            better understanding of it. df.jsx now serves as a learning ground
-            for me to continue to play with and a great reference repo when I
-            integrate modeling and a chatbots into future apps.
+            Ultimately after many hours of perserverence, my df.jsx app now
+            serves as a useful testing app and reference repo for me to use when
+            I integrate modeling and a chatbots into future apps. I won't be
+            developing it further, but I will take what I learned here to make
+            other apps with similar integrations. Although it was painful at
+            times, it was a good experience to push through on my quest for
+            integrated gpu compute because now I have a better understanding of
+            it, or at least I have a clue.
           </p>
           <p className="text-sm leading-relaxed text-left rounded-md border border-emerald-200 bg-emerald-50/70 p-3 text-emerald-900">
             <span className="font-semibold">Tip:</span> Check out the{" "}
@@ -146,10 +155,12 @@ export default function About() {
             <p className="text-gray-600 text-sm leading-relaxed text-left">
               df.jsx demonstrates how full-stack web technologies can be
               combined with Python-based analytics to deliver an end-to-end data
-              science application. The project highlights integration patterns
+              science application and an integrated chatbot fed context through
+              various methods. The project highlights integration patterns
               between a modern JavaScript frontend and a high-performance Python
               backend, making it possible to run and visualize machine learning
-              models entirely in a browser-based UI.
+              models entirely in a browser-based UI while discussing the process
+              with a chatbot.
             </p>
           </section>
 

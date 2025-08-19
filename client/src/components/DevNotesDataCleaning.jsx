@@ -335,7 +335,7 @@ export default function DevNotesDataCleaning() {
                     {/* Header */}
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                       <Dialog.Title className="text-lg font-semibold text-gray-900">
-                        Data Cleaning — Dev Notes (for Instructor)
+                        Data Cleaning — Dev Notes
                       </Dialog.Title>
                       <button
                         onClick={() => setOpen(false)}
@@ -357,7 +357,7 @@ export default function DevNotesDataCleaning() {
                         explains how the chosen steps impact the dataset.
                       </Section>
                       <Section title="Quick Note">
-                        Data Cleaning and Feature Engineering can be iterative
+                        Data Cleaning and Feature Engineering is an iterative
                         process and involves many more functions. I realize that
                         the software here is not professionally complete. For
                         this to be truly useful, the component would have been
@@ -422,23 +422,28 @@ export default function DevNotesDataCleaning() {
                         <li>
                           Keeping Databot’s context in sync across pages was
                           tricky—fixes on this screen sometimes broke others.
-                          There are few bugs in this databot. Next time I’ll
-                          split the logic into small, page-scoped handlers with
-                          a shared, typed payload instead of one large
-                          conditional.
+                          There are still a few things I want to change in this
+                          databot. Next time I’ll split the logic into small,
+                          page-scoped handlers with a shared, typed payload
+                          instead of one large conditional.
                         </li>
 
                         <li>
-                          The <code>debouncedFetch</code> prevents chat flapping
-                          during rapid option changes. For critical moments (
-                          <em>preview_result</em>, <em>save_success</em>),
-                          you’re already bypassing the summary gate — good.
+                          <code>debouncedFetch</code> collapses rapid option
+                          changes into a single update (~500 ms), preventing
+                          “chat flapping” and redundant bot messages. A summary
+                          gate also avoids sending no-op updates when the
+                          pipeline hasn’t changed. For critical events (
+                          <em>preview</em>, <em>preview_result</em>,{" "}
+                          <em>save_request</em>, <em>save_success</em>,{" "}
+                          <em>save_error</em>), that gate is bypassed so Databot
+                          always sees the outcome, even if the summary text is
+                          unchanged.
                         </li>
+
                         <li>
                           If users toggle the same plan repeatedly,
                           <code>lastPipelineSummary</code> can suppress pushes.
-                          You’ve whitelisted key intents; keep that list synced
-                          if you add more intents.
                         </li>
                         <li>
                           If headers are lowercased, ensure{" "}
@@ -460,7 +465,9 @@ export default function DevNotesDataCleaning() {
                         <strong>just-in-time context</strong>: push a compact
                         summary of the pipeline and the preview deltas, then
                         broadcast a lightweight event so Databot can talk about
-                        the exact steps the user just tried.
+                        the exact steps the user just tried. This takes alot of
+                        trial and error testing and reordering of the code and
+                        revision of prompts.
                       </Section>
                     </div>
                     {/* /Body */}

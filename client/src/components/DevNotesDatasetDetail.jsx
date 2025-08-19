@@ -278,7 +278,7 @@ async def get_dataset_detail(dataset_id: int, db: AsyncSession = Depends(get_asy
                     {/* Header */}
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                       <Dialog.Title className="text-lg font-semibold text-gray-900">
-                        Dataset Detail — Dev Notes (for Instructor)
+                        Dataset Detail — Dev Notes
                       </Dialog.Title>
                       <button
                         onClick={() => setOpen(false)}
@@ -301,10 +301,7 @@ async def get_dataset_detail(dataset_id: int, db: AsyncSession = Depends(get_asy
                         user is looking at.
                       </Section>
 
-                      <Section
-                        title="How Databot gets context (high level)"
-                        as="ol"
-                      >
+                      <Section title="How Databot gets context" as="ol">
                         <li>
                           Build a compact <em>dataset-detail</em> context (id +
                           quick stats) from <code>column_metadata</code>.
@@ -328,8 +325,8 @@ async def get_dataset_detail(dataset_id: int, db: AsyncSession = Depends(get_asy
                           <code className="px-1 rounded bg-gray-100">
                             databot:context
                           </code>{" "}
-                          (plan / last action / result). We keep Dataset Detail
-                          context simpler on purpose.
+                          (plan / last action / result). Decided to keep Dataset
+                          Detail context simpler on this page.
                         </li>
                       </Section>
 
@@ -388,9 +385,9 @@ async def get_dataset_detail(dataset_id: int, db: AsyncSession = Depends(get_asy
                       <Section title="Troubleshooting">
                         <ul className="list-disc list-inside space-y-1">
                           <li>
-                            If answers are generic, verify the{" "}
-                            <code>dfjsx-set-bot-context</code> fires with a{" "}
-                            valid <code>datasetId</code> and <code>meta</code>.
+                            When answers were generic, had to make the{" "}
+                            <code>dfjsx-set-bot-context</code> fire with a valid{" "}
+                            <code>datasetId</code> and <code>meta</code>.
                           </li>
                           <li>
                             If chat doesn’t open, check for any errors thrown by{" "}
@@ -398,9 +395,18 @@ async def get_dataset_detail(dataset_id: int, db: AsyncSession = Depends(get_asy
                             <code>Databot.jsx</code>.
                           </li>
                           <li>
-                            On older datasets (uploaded pre-change),{" "}
-                            <code>column_metadata</code> may be sparse; Databot
-                            will do its best but may fall back to generic tips.
+                            On older datasets (uploaded before this change),{" "}
+                            <code>column_metadata</code> may be
+                            incomplete—earlier imports didn’t persist fields
+                            like <code>dtype</code>, <code>n_unique</code>, or{" "}
+                            <code>null_count</code> for every column. When that
+                            happens, Databot/advisor can’t compute badges or
+                            target candidates and will fall back to generic
+                            tips. So I had to re-run a cleaning preview (or
+                            re-upload) to refresh metadata. Saving the cleaned
+                            result backfills these stats for future sessions.
+                            These are things I learned while testing and an
+                            example of why testing took so long.
                           </li>
                         </ul>
                       </Section>
